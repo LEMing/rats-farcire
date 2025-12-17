@@ -1,9 +1,10 @@
 import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
+import { pass, uniform } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import type { MapData, Vec3, EnemyType } from '@shared/types';
 import { TILE_SIZE, COLORS, BLOOD_COLORS } from '@shared/constants';
 import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
+import { TargetingLaserMaterial } from './LaserMaterial';
 
 // ============================================================================
 // Particle for death effects
@@ -53,6 +54,10 @@ export class Renderer {
   // Blood decals
   private bloodDecals: THREE.Mesh[] = [];
   private readonly MAX_BLOOD_DECALS = 100;
+
+  // Time uniform for animated shaders
+  private readonly timeUniform = uniform(0);
+  private time = 0;
 
   private container: HTMLElement;
   private initialized = false;
@@ -257,6 +262,9 @@ export class Renderer {
     );
     // Blurred emblem material (for farshist symbol)
     this.materials.set('emblem', BlurredEmblemMaterial.create());
+
+    // Targeting laser material (TSL shader with smooth fade)
+    this.materials.set('targetingLaser', TargetingLaserMaterial.create(this.timeUniform));
   }
 
   buildMap(mapData: MapData): void {
@@ -415,6 +423,10 @@ export class Renderer {
 
   render(): void {
     if (!this.initialized) return;
+
+    // Update time uniform for animated shaders (laser, etc.)
+    this.time += 0.016; // ~60fps delta
+    this.timeUniform.value = this.time;
 
     if (this.usePostProcessing && this.postProcessing) {
       this.postProcessing.render();

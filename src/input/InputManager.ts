@@ -55,15 +55,6 @@ export class InputManager {
   }
 
   getState(): InputState {
-    // Calculate movement direction
-    let moveX = 0;
-    let moveY = 0;
-
-    if (this.keys.has('w') || this.keys.has('arrowup')) moveY -= 1;
-    if (this.keys.has('s') || this.keys.has('arrowdown')) moveY += 1;
-    if (this.keys.has('a') || this.keys.has('arrowleft')) moveX -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright')) moveX += 1;
-
     // Calculate aim direction from screen center to mouse
     // In isometric view, we need to convert screen coordinates to world direction
     const centerX = window.innerWidth / 2;
@@ -83,6 +74,32 @@ export class InputManager {
     const aimLen = Math.sqrt(aimX * aimX + aimY * aimY);
     const normalizedAimX = aimLen > 0 ? aimX / aimLen : 0;
     const normalizedAimY = aimLen > 0 ? aimY / aimLen : 1;
+
+    // Get raw WASD input (relative to aim direction)
+    // W = forward (toward aim), S = backward, A = strafe left, D = strafe right
+    let forward = 0;
+    let strafe = 0;
+
+    if (this.keys.has('w') || this.keys.has('arrowup')) forward += 1;
+    if (this.keys.has('s') || this.keys.has('arrowdown')) forward -= 1;
+    if (this.keys.has('a') || this.keys.has('arrowleft')) strafe -= 1;
+    if (this.keys.has('d') || this.keys.has('arrowright')) strafe += 1;
+
+    // Calculate movement relative to aim direction
+    // Forward vector is (aimX, aimY), right vector is perpendicular
+    const rightX = -normalizedAimY; // Perpendicular to aim (right)
+    const rightY = normalizedAimX;
+
+    // Combine forward and strafe into world-space movement
+    let moveX = forward * normalizedAimX + strafe * rightX;
+    let moveY = forward * normalizedAimY + strafe * rightY;
+
+    // Normalize if moving diagonally
+    const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
+    if (moveLen > 1) {
+      moveX /= moveLen;
+      moveY /= moveLen;
+    }
 
     this.sequence++;
 

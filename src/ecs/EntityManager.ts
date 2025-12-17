@@ -11,6 +11,7 @@ import { Renderer } from '../rendering/Renderer';
 import { lerpVec3, lerpAngle } from '@shared/utils';
 import { COLORS, POWERUP_CONFIGS } from '@shared/constants';
 import { BlurredEmblemMaterial } from '../rendering/BlurredEmblemMaterial';
+import { TargetingLaserMaterial } from '../rendering/LaserMaterial';
 
 // ============================================================================
 // Entity Visual Representation
@@ -33,10 +34,6 @@ export class EntityManager {
 
   // Afterimage system for dash
   private afterimages: { mesh: THREE.Group; lifetime: number }[] = [];
-
-  // Projectile trail system
-  private projectileTrails: Map<string, THREE.Vector3[]> = new Map();
-  private trailLines: Map<string, THREE.Line> = new Map();
 
   // Enemy state tracking for speech bubble animation
   private enemyStates: Map<string, EnemyState> = new Map();
@@ -74,22 +71,121 @@ export class EntityManager {
   createPlayer(state: PlayerState): void {
     const group = new THREE.Group();
 
-    // Body (cylinder)
-    const bodyGeom = this.renderer.getGeometry('playerBody')!;
-    const bodyMat = this.renderer.getMaterial('player')!;
-    const body = new THREE.Mesh(bodyGeom, bodyMat);
-    body.castShadow = true;
-    group.add(body);
+    // === DALEK MODEL ===
+    const dalekColor = 0x4488cc; // Blue Dalek
+    const dalekMetal = 0x888899; // Metallic parts
+    const dalekGold = 0xccaa44; // Gold accents
+    const dalekDark = 0x222233; // Dark parts
 
-    // Direction indicator (small cone for gun)
-    const gunGeom = new THREE.ConeGeometry(0.1, 0.4, 4);
-    const gunMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
-    const gun = new THREE.Mesh(gunGeom, gunMat);
-    gun.position.set(0, 0, 0.5);
-    gun.rotation.x = Math.PI / 2;
-    group.add(gun);
+    // --- Base skirt (bottom section with bumps) ---
+    const skirtGeom = new THREE.CylinderGeometry(0.5, 0.6, 0.5, 16);
+    const skirtMat = new THREE.MeshLambertMaterial({ color: dalekColor });
+    const skirt = new THREE.Mesh(skirtGeom, skirtMat);
+    skirt.position.y = 0.25;
+    skirt.castShadow = true;
+    group.add(skirt);
 
-    // Muzzle flash (initially invisible)
+    // Bumps on skirt (Dalek spheres) - 2 rows
+    const bumpMat = new THREE.MeshLambertMaterial({ color: dalekGold });
+    for (let row = 0; row < 2; row++) {
+      const bumpCount = 8;
+      const radius = 0.52 - row * 0.05;
+      const y = 0.15 + row * 0.2;
+      for (let i = 0; i < bumpCount; i++) {
+        const angle = (i / bumpCount) * Math.PI * 2;
+        const bumpGeom = new THREE.SphereGeometry(0.08, 8, 8);
+        const bump = new THREE.Mesh(bumpGeom, bumpMat);
+        bump.position.set(Math.sin(angle) * radius, y, Math.cos(angle) * radius);
+        group.add(bump);
+      }
+    }
+
+    // --- Middle section (weapons platform) ---
+    const midGeom = new THREE.CylinderGeometry(0.4, 0.5, 0.3, 16);
+    const midMat = new THREE.MeshLambertMaterial({ color: dalekMetal });
+    const mid = new THREE.Mesh(midGeom, midMat);
+    mid.position.y = 0.65;
+    mid.castShadow = true;
+    group.add(mid);
+
+    // --- Shoulder section ---
+    const shoulderGeom = new THREE.CylinderGeometry(0.35, 0.4, 0.2, 16);
+    const shoulder = new THREE.Mesh(shoulderGeom, midMat);
+    shoulder.position.y = 0.9;
+    group.add(shoulder);
+
+    // Slats around shoulder
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const slatGeom = new THREE.BoxGeometry(0.02, 0.15, 0.08);
+      const slatMat = new THREE.MeshLambertMaterial({ color: dalekDark });
+      const slat = new THREE.Mesh(slatGeom, slatMat);
+      slat.position.set(Math.sin(angle) * 0.38, 0.9, Math.cos(angle) * 0.38);
+      slat.rotation.y = -angle;
+      group.add(slat);
+    }
+
+    // --- Dome head ---
+    const domeGeom = new THREE.SphereGeometry(0.3, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+    const domeMat = new THREE.MeshLambertMaterial({ color: dalekColor });
+    const dome = new THREE.Mesh(domeGeom, domeMat);
+    dome.position.y = 1.0;
+    dome.castShadow = true;
+    group.add(dome);
+
+    // Dome lights (ears)
+    const lightMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    for (let side = -1; side <= 1; side += 2) {
+      const lightGeom = new THREE.SphereGeometry(0.06, 8, 8);
+      const light = new THREE.Mesh(lightGeom, lightMat);
+      light.position.set(side * 0.2, 1.2, 0);
+      group.add(light);
+    }
+
+    // --- Eyestalk ---
+    const eyestalkGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8);
+    const eyestalkMat = new THREE.MeshLambertMaterial({ color: dalekMetal });
+    const eyestalk = new THREE.Mesh(eyestalkGeom, eyestalkMat);
+    eyestalk.position.set(0, 1.05, 0.25);
+    eyestalk.rotation.x = Math.PI / 2.5;
+    group.add(eyestalk);
+
+    // Eye (glowing)
+    const eyeGeom = new THREE.SphereGeometry(0.05, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+    const eye = new THREE.Mesh(eyeGeom, eyeMat);
+    eye.position.set(0, 1.15, 0.45);
+    group.add(eye);
+
+    // --- Gun arm (death ray) ---
+    const gunArmGeom = new THREE.CylinderGeometry(0.03, 0.05, 0.5, 8);
+    const gunArmMat = new THREE.MeshLambertMaterial({ color: dalekDark });
+    const gunArm = new THREE.Mesh(gunArmGeom, gunArmMat);
+    gunArm.position.set(0.25, 0.65, 0.35);
+    gunArm.rotation.x = Math.PI / 2;
+    group.add(gunArm);
+
+    // Gun tip
+    const gunTipGeom = new THREE.SphereGeometry(0.04, 8, 8);
+    const gunTip = new THREE.Mesh(gunTipGeom, new THREE.MeshBasicMaterial({ color: 0xff4444 }));
+    gunTip.position.set(0.25, 0.65, 0.6);
+    group.add(gunTip);
+
+    // --- Plunger arm ---
+    const plungerArmGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8);
+    const plungerArm = new THREE.Mesh(plungerArmGeom, gunArmMat);
+    plungerArm.position.set(-0.25, 0.65, 0.3);
+    plungerArm.rotation.x = Math.PI / 2;
+    group.add(plungerArm);
+
+    // Plunger cup
+    const plungerGeom = new THREE.CylinderGeometry(0.08, 0.06, 0.05, 12);
+    const plunger = new THREE.Mesh(plungerGeom, new THREE.MeshLambertMaterial({ color: 0x333333 }));
+    plunger.position.set(-0.25, 0.65, 0.52);
+    plunger.rotation.x = Math.PI / 2;
+    group.add(plunger);
+
+    // === Muzzle flash (at gun tip) ===
     const flashGeom = new THREE.PlaneGeometry(0.5, 0.5);
     const flashMat = new THREE.MeshBasicMaterial({
       color: COLORS.muzzleFlash,
@@ -99,36 +195,17 @@ export class EntityManager {
     });
     const flash = new THREE.Mesh(flashGeom, flashMat);
     flash.name = 'muzzleFlash';
-    flash.position.set(0, 0.1, 0.7);
+    flash.position.set(0.25, 0.65, 0.7);
     group.add(flash);
 
-    // Targeting laser
-    const laserPoints = [
-      new THREE.Vector3(0, 0.1, 0.5),
-      new THREE.Vector3(0, 0.1, 15), // 15 units range
-    ];
-    const laserGeom = new THREE.BufferGeometry().setFromPoints(laserPoints);
-    const laserMat = new THREE.LineBasicMaterial({
-      color: 0xff3333,
-      transparent: true,
-      opacity: 0.6,
-    });
-    const laser = new THREE.Line(laserGeom, laserMat);
+    // === Targeting laser ===
+    const laserGeom = TargetingLaserMaterial.createGeometry(14.5, 0.12);
+    const laserMat = this.renderer.getMaterial('targetingLaser')!;
+    const laser = new THREE.Mesh(laserGeom, laserMat);
     laser.name = 'targetingLaser';
+    laser.rotation.x = Math.PI / 2;
+    laser.position.set(0.25, 0.65, 0.6); // From gun tip
     group.add(laser);
-
-    // Laser dot at end
-    const dotGeom = new THREE.CircleGeometry(0.15, 8);
-    const dotMat = new THREE.MeshBasicMaterial({
-      color: 0xff0000,
-      transparent: true,
-      opacity: 0.8,
-    });
-    const dot = new THREE.Mesh(dotGeom, dotMat);
-    dot.name = 'laserDot';
-    dot.position.set(0, 0.05, 15);
-    dot.rotation.x = -Math.PI / 2;
-    group.add(dot);
 
     group.position.set(state.position.x, state.position.y, state.position.z);
     group.rotation.y = state.rotation;
@@ -264,21 +341,6 @@ export class EntityManager {
       prevState: { position: { ...state.position }, rotation: state.rotation },
       currentState: { position: { ...state.position }, rotation: state.rotation },
     });
-
-    // Initialize projectile trail
-    this.projectileTrails.set(state.id, [new THREE.Vector3(state.position.x, state.position.y, state.position.z)]);
-
-    // Create trail line
-    const trailGeom = new THREE.BufferGeometry();
-    const trailMat = new THREE.LineBasicMaterial({
-      color: 0xffee88,
-      transparent: true,
-      opacity: 0.6,
-    });
-    const trailLine = new THREE.Line(trailGeom, trailMat);
-    trailLine.frustumCulled = false;
-    this.renderer.addToScene(trailLine);
-    this.trailLines.set(state.id, trailLine);
   }
 
   createPickup(state: PickupState): void {
@@ -349,22 +411,7 @@ export class EntityManager {
 
   updateProjectile(state: ProjectileState): void {
     this.updateEntityState(state.id, state.position, state.rotation);
-
-    // Update projectile trail
-    const trail = this.projectileTrails.get(state.id);
-    const trailLine = this.trailLines.get(state.id);
-    if (trail && trailLine) {
-      // Add current position to trail
-      trail.push(new THREE.Vector3(state.position.x, state.position.y, state.position.z));
-
-      // Keep trail limited to last 8 positions
-      if (trail.length > 8) {
-        trail.shift();
-      }
-
-      // Update trail geometry
-      trailLine.geometry.setFromPoints(trail);
-    }
+    // Laser shader handles the visual trail effect
   }
 
   private updateEntityState(id: string, position: Vec3, rotation: number): void {
@@ -383,16 +430,6 @@ export class EntityManager {
     }
     // Also clean up enemy state tracking
     this.enemyStates.delete(id);
-
-    // Clean up projectile trail
-    const trailLine = this.trailLines.get(id);
-    if (trailLine) {
-      this.renderer.removeFromScene(trailLine);
-      trailLine.geometry.dispose();
-      (trailLine.material as THREE.Material).dispose();
-      this.trailLines.delete(id);
-    }
-    this.projectileTrails.delete(id);
   }
 
   // Fade out an enemy over time (death animation)
