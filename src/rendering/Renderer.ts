@@ -29,9 +29,15 @@ export class Renderer {
   private usePostProcessing = true;
 
   // Camera settings for isometric view
-  private readonly CAMERA_ZOOM = 30;
+  private readonly CAMERA_ZOOM = 14; // Closer view for shooter feel
   private readonly CAMERA_ANGLE = Math.PI / 4; // 45 degrees
   private readonly CAMERA_PITCH = Math.atan(1 / Math.sqrt(2)); // ~35.264 degrees (true isometric)
+  private readonly CAMERA_LEAD = 3; // How far camera looks ahead toward aim
+  private readonly CAMERA_SMOOTHING = 0.12; // Lower = smoother/slower follow
+
+  // Camera follow state
+  private cameraTarget = new THREE.Vector3();
+  private currentCameraLookAt = new THREE.Vector3();
 
   // Geometry caches
   private geometries: Map<string, THREE.BufferGeometry> = new Map();
@@ -388,21 +394,44 @@ export class Renderer {
     }
   }
 
-  updateCamera(targetPosition: Vec3): void {
+  updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {
     // Update screen shake
     this.updateShake();
 
-    // Smooth follow with shake offset
+    // Calculate look-ahead offset based on aim direction
+    let leadX = 0;
+    let leadZ = 0;
+    if (aimDirection) {
+      leadX = aimDirection.x * this.CAMERA_LEAD;
+      leadZ = aimDirection.y * this.CAMERA_LEAD;
+    }
+
+    // Target position with aim lead
+    const targetX = targetPosition.x + leadX;
+    const targetZ = targetPosition.z + leadZ;
+
+    // Smooth follow - lerp toward target
+    this.cameraTarget.x += (targetX - this.cameraTarget.x) * this.CAMERA_SMOOTHING;
+    this.cameraTarget.y = targetPosition.y;
+    this.cameraTarget.z += (targetZ - this.cameraTarget.z) * this.CAMERA_SMOOTHING;
+
+    // Position camera at isometric offset from smoothed target
     const distance = 50;
     this.camera.position.set(
-      targetPosition.x + distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.x,
-      targetPosition.y + distance * Math.sin(this.CAMERA_PITCH) + this.shakeOffset.y,
-      targetPosition.z + distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.z
+      this.cameraTarget.x + distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.x,
+      this.cameraTarget.y + distance * Math.sin(this.CAMERA_PITCH) + this.shakeOffset.y,
+      this.cameraTarget.z + distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.z
     );
+
+    // Smooth look-at as well
+    this.currentCameraLookAt.x += (this.cameraTarget.x - this.currentCameraLookAt.x) * this.CAMERA_SMOOTHING;
+    this.currentCameraLookAt.y = this.cameraTarget.y;
+    this.currentCameraLookAt.z += (this.cameraTarget.z - this.currentCameraLookAt.z) * this.CAMERA_SMOOTHING;
+
     this.camera.lookAt(
-      targetPosition.x + this.shakeOffset.x * 0.5,
-      targetPosition.y,
-      targetPosition.z + this.shakeOffset.z * 0.5
+      this.currentCameraLookAt.x + this.shakeOffset.x * 0.5,
+      this.currentCameraLookAt.y,
+      this.currentCameraLookAt.z + this.shakeOffset.z * 0.5
     );
   }
 

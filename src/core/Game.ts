@@ -194,10 +194,11 @@ export class Game {
     // Update crosshair position
     this.ui.updateCrosshair(this.input.mouseX, this.input.mouseY);
 
-    // Update camera to follow player
+    // Update camera to follow player with aim look-ahead
     const playerPos = this.entities.getLocalPlayerPosition();
     if (playerPos) {
-      this.renderer.updateCamera(playerPos);
+      const inputState = this.input.getState();
+      this.renderer.updateCamera(playerPos, { x: inputState.aimX, y: inputState.aimY });
     }
 
     // Render scene
