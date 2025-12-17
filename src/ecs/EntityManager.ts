@@ -9,7 +9,7 @@ import type {
 } from '@shared/types';
 import { Renderer } from '../rendering/Renderer';
 import { lerpVec3, lerpAngle } from '@shared/utils';
-import { COLORS, CLIENT_RENDER_DELAY } from '@shared/constants';
+import { COLORS } from '@shared/constants';
 
 // ============================================================================
 // Entity Visual Representation
@@ -29,9 +29,6 @@ export class EntityManager {
   private renderer: Renderer;
   private entities: Map<string, EntityVisual> = new Map();
   public localPlayerId: string | null = null;
-
-  // Snapshot buffer for interpolation (multiplayer)
-  private stateBuffer: { timestamp: number; state: SerializedGameState }[] = [];
 
   constructor(renderer: Renderer) {
     this.renderer = renderer;
@@ -65,6 +62,7 @@ export class EntityManager {
 
     group.position.set(state.position.x, state.position.y, state.position.z);
     group.rotation.y = state.rotation;
+    group.userData.entityType = 'player';
 
     this.renderer.addToScene(group);
     this.entities.set(state.id, {
@@ -128,6 +126,7 @@ export class EntityManager {
 
     group.position.set(state.position.x, state.position.y, state.position.z);
     group.rotation.y = state.rotation;
+    group.userData.entityType = 'enemy';
 
     this.renderer.addToScene(group);
     this.entities.set(state.id, {
@@ -156,6 +155,7 @@ export class EntityManager {
     group.add(mesh);
 
     group.position.set(state.position.x, state.position.y, state.position.z);
+    group.userData.entityType = 'projectile';
 
     this.renderer.addToScene(group);
     this.entities.set(state.id, {
@@ -180,8 +180,9 @@ export class EntityManager {
 
     group.position.set(state.position.x, state.position.y, state.position.z);
 
-    // Store pickup animation data
+    // Store pickup animation data and entity type
     group.userData.pickupAnimation = { baseY: state.position.y, time: 0 };
+    group.userData.entityType = 'pickup';
 
     this.renderer.addToScene(group);
     this.entities.set(state.id, {
@@ -258,22 +259,14 @@ export class EntityManager {
   // ============================================================================
 
   applyServerState(state: SerializedGameState): void {
-    // Add to buffer for interpolation
-    this.stateBuffer.push({ timestamp: state.timestamp, state });
-
-    // Keep buffer limited
-    if (this.stateBuffer.length > 32) {
-      this.stateBuffer.shift();
-    }
-
-    // Get interpolated state
-    const renderTime = Date.now() - CLIENT_RENDER_DELAY;
-    const interpolated = this.getInterpolatedState(renderTime);
-    if (!interpolated) return;
+    // Collect all current server entity IDs by type
+    const serverPlayerIds = new Set(state.players.map(([id]) => id));
+    const serverEnemyIds = new Set(state.enemies.map(([id]) => id));
+    const serverProjectileIds = new Set(state.projectiles.map(([id]) => id));
+    const serverPickupIds = new Set(state.pickups.map(([id]) => id));
 
     // Sync players
-    const currentPlayerIds = new Set(interpolated.players.map(([id]) => id));
-    for (const [id, playerState] of interpolated.players) {
+    for (const [id, playerState] of state.players) {
       if (!this.entities.has(id)) {
         this.createPlayer(playerState);
       } else {
@@ -281,16 +274,8 @@ export class EntityManager {
       }
     }
 
-    // Remove disconnected players
-    for (const [id, entity] of this.entities) {
-      if (entity.mesh.userData.entityType === 'player' && !currentPlayerIds.has(id)) {
-        this.removeEntity(id);
-      }
-    }
-
     // Sync enemies
-    const currentEnemyIds = new Set(interpolated.enemies.map(([id]) => id));
-    for (const [id, enemyState] of interpolated.enemies) {
+    for (const [id, enemyState] of state.enemies) {
       if (!this.entities.has(id)) {
         this.createEnemy(enemyState);
       } else {
@@ -298,15 +283,8 @@ export class EntityManager {
       }
     }
 
-    // Remove dead enemies
-    for (const [id] of this.entities) {
-      if (id.startsWith('enemy-') && !currentEnemyIds.has(id)) {
-        this.removeEntity(id);
-      }
-    }
-
     // Sync projectiles
-    for (const [id, projState] of interpolated.projectiles) {
+    for (const [id, projState] of state.projectiles) {
       if (!this.entities.has(id)) {
         this.createProjectile(projState);
       } else {
@@ -315,39 +293,40 @@ export class EntityManager {
     }
 
     // Sync pickups
-    for (const [id, pickupState] of interpolated.pickups) {
+    for (const [id, pickupState] of state.pickups) {
       if (!this.entities.has(id)) {
         this.createPickup(pickupState);
       }
     }
-  }
 
-  private getInterpolatedState(renderTime: number): SerializedGameState | null {
-    if (this.stateBuffer.length < 2) {
-      return this.stateBuffer[0]?.state ?? null;
-    }
+    // Remove entities that no longer exist on server
+    const toRemove: string[] = [];
+    for (const [id, entity] of this.entities) {
+      const type = entity.mesh.userData.entityType;
+      let shouldRemove = false;
 
-    // Find two states to interpolate between
-    let before: (typeof this.stateBuffer)[0] | null = null;
-    let after: (typeof this.stateBuffer)[0] | null = null;
+      switch (type) {
+        case 'player':
+          shouldRemove = !serverPlayerIds.has(id);
+          break;
+        case 'enemy':
+          shouldRemove = !serverEnemyIds.has(id);
+          break;
+        case 'projectile':
+          shouldRemove = !serverProjectileIds.has(id);
+          break;
+        case 'pickup':
+          shouldRemove = !serverPickupIds.has(id);
+          break;
+      }
 
-    for (let i = 0; i < this.stateBuffer.length - 1; i++) {
-      if (
-        this.stateBuffer[i].timestamp <= renderTime &&
-        this.stateBuffer[i + 1].timestamp >= renderTime
-      ) {
-        before = this.stateBuffer[i];
-        after = this.stateBuffer[i + 1];
-        break;
+      if (shouldRemove) {
+        toRemove.push(id);
       }
     }
 
-    if (!before || !after) {
-      return this.stateBuffer[this.stateBuffer.length - 1].state;
+    for (const id of toRemove) {
+      this.removeEntity(id);
     }
-
-    // For now, just return the "before" state
-    // Full interpolation would interpolate each entity position
-    return before.state;
   }
 }
