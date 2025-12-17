@@ -91,26 +91,31 @@ export class Renderer {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    // Create WebGPU renderer
-    this.renderer = new THREE.WebGPURenderer({
-      antialias: true,
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    try {
+      // Create WebGPU renderer
+      this.renderer = new THREE.WebGPURenderer({
+        antialias: true,
+      });
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      this.renderer.setSize(window.innerWidth, window.innerHeight);
 
-    // Initialize WebGPU
-    await this.renderer.init();
+      // Initialize WebGPU (falls back to WebGL2 if unavailable)
+      await this.renderer.init();
 
-    this.container.appendChild(this.renderer.domElement);
+      this.container.appendChild(this.renderer.domElement);
 
-    // Initialize post-processing with TSL
-    this.initPostProcessing();
+      // Initialize post-processing with TSL
+      this.initPostProcessing();
 
-    // Initialize particle system
-    this.initParticleSystem();
+      // Initialize particle system
+      this.initParticleSystem();
 
-    this.initialized = true;
-    console.log('WebGPU Renderer initialized');
+      this.initialized = true;
+      console.log('WebGPU Renderer initialized');
+    } catch (e) {
+      console.error('Renderer initialization failed:', e);
+      throw new Error('Failed to initialize WebGPU/WebGL renderer. Please use a modern browser with WebGPU or WebGL2 support.');
+    }
   }
 
   private initPostProcessing(): void {

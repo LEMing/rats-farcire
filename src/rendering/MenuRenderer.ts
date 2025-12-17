@@ -52,16 +52,25 @@ export class MenuRenderer {
   async init(): Promise<void> {
     if (this.initialized) return;
 
-    this.initializeScene();
-    this.initializeRenderer();
-    await this.renderer.init();
+    try {
+      this.initializeScene();
+      this.initializeRenderer();
+      await this.renderer.init();
 
-    this.initializeFactories();
-    this.setupScene();
-    this.setupPostProcessing();
+      this.initializeFactories();
+      this.setupScene();
+      this.setupPostProcessing();
 
-    this.initialized = true;
-    console.log('Menu renderer initialized');
+      this.initialized = true;
+      console.log('Menu renderer initialized');
+    } catch (e) {
+      console.warn('Menu renderer initialization failed, skipping animated background:', e);
+      // Clean up any partial initialization
+      if (this.renderer?.domElement?.parentElement) {
+        this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+      }
+      this.initialized = false;
+    }
   }
 
   start(): void {
