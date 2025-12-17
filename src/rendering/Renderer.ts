@@ -1,16 +1,31 @@
-import * as THREE from 'three';
-import type { MapData, Vec3 } from '@shared/types';
-import { TILE_SIZE, COLORS } from '@shared/constants';
+import * as THREE from 'three/webgpu';
+import { pass } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import type { MapData, Vec3, EnemyType } from '@shared/types';
+import { TILE_SIZE, COLORS, BLOOD_COLORS } from '@shared/constants';
 import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 
 // ============================================================================
-// Three.js Renderer with Isometric Camera
+// Particle for death effects
+// ============================================================================
+
+interface Particle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  lifetime: number;
+  maxLifetime: number;
+}
+
+// ============================================================================
+// Three.js Renderer with WebGPU and Isometric Camera
 // ============================================================================
 
 export class Renderer {
   public scene: THREE.Scene;
   public camera: THREE.OrthographicCamera;
-  private renderer: THREE.WebGLRenderer;
+  private renderer!: THREE.WebGPURenderer;
+  private postProcessing!: THREE.PostProcessing;
+  private usePostProcessing = true;
 
   // Camera settings for isometric view
   private readonly CAMERA_ZOOM = 30;
@@ -21,7 +36,30 @@ export class Renderer {
   private geometries: Map<string, THREE.BufferGeometry> = new Map();
   private materials: Map<string, THREE.Material> = new Map();
 
+  // Screen shake system
+  private shakeIntensity = 0;
+  private shakeDecay = 0.9;
+  private shakeOffset = new THREE.Vector3();
+
+  // Particle system
+  private particles: Particle[] = [];
+  private particlePool: THREE.Mesh[] = [];
+  private particleGeometry!: THREE.SphereGeometry;
+
+  // Torch lights for flickering
+  private torchLights: THREE.PointLight[] = [];
+  private torchFlames: THREE.Mesh[] = [];
+
+  // Blood decals
+  private bloodDecals: THREE.Mesh[] = [];
+  private readonly MAX_BLOOD_DECALS = 100;
+
+  private container: HTMLElement;
+  private initialized = false;
+
   constructor(container: HTMLElement) {
+    this.container = container;
+
     // Create scene
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1a1a2e);
@@ -41,22 +79,60 @@ export class Renderer {
     // Position camera for isometric view
     this.setupIsometricCamera();
 
-    // Create renderer
-    this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    container.appendChild(this.renderer.domElement);
-
     // Setup lighting
     this.setupLighting();
 
     // Cache common geometries
     this.cacheGeometries();
     this.cacheMaterials();
+  }
+
+  // Async initialization for WebGPU
+  async init(): Promise<void> {
+    if (this.initialized) return;
+
+    // Create WebGPU renderer
+    this.renderer = new THREE.WebGPURenderer({
+      antialias: true,
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Initialize WebGPU
+    await this.renderer.init();
+
+    this.container.appendChild(this.renderer.domElement);
+
+    // Initialize post-processing with TSL
+    this.initPostProcessing();
+
+    // Initialize particle system
+    this.initParticleSystem();
+
+    this.initialized = true;
+    console.log('WebGPU Renderer initialized');
+  }
+
+  private initPostProcessing(): void {
+    try {
+      // Create post-processing pipeline with TSL
+      this.postProcessing = new THREE.PostProcessing(this.renderer);
+
+      // Scene pass
+      const scenePass = pass(this.scene, this.camera);
+      const scenePassColor = scenePass.getTextureNode('output');
+
+      // Apply bloom effect to scene
+      const bloomPass = bloom(scenePassColor, 0.5, 0.3, 0.9);
+
+      // Combine original with bloom
+      this.postProcessing.outputNode = scenePassColor.add(bloomPass);
+
+      console.log('TSL Post-processing initialized');
+    } catch (e) {
+      console.warn('Post-processing setup failed, using standard rendering:', e);
+      this.usePostProcessing = false;
+    }
   }
 
   private setupIsometricCamera(): void {
@@ -72,11 +148,11 @@ export class Renderer {
 
   private setupLighting(): void {
     // Ambient light
-    const ambient = new THREE.AmbientLight(0x404060, 0.6);
+    const ambient = new THREE.AmbientLight(0x606080, 0.8);
     this.scene.add(ambient);
 
     // Main directional light (sun)
-    const sun = new THREE.DirectionalLight(0xffffcc, 0.8);
+    const sun = new THREE.DirectionalLight(0xffffcc, 1.0);
     sun.position.set(20, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.width = 2048;
@@ -180,6 +256,15 @@ export class Renderer {
       .filter((obj) => obj.userData.mapObject)
       .forEach((obj) => this.scene.remove(obj));
 
+    // Clear torch arrays
+    this.torchLights = [];
+    this.torchFlames = [];
+    this.bloodDecals = [];
+
+    // Track torch count for performance limit
+    let torchCount = 0;
+    const MAX_TORCHES = 20;
+
     const floorGeom = this.geometries.get('floor')!;
     const wallGeom = this.geometries.get('wall')!;
     const debrisGeom = this.geometries.get('debris')!;
@@ -218,8 +303,8 @@ export class Renderer {
           matrix.setPosition(worldX, 0, worldZ);
           floorInstanced.setMatrixAt(floorIndex++, matrix);
 
-          // Add debris or puddle decorations
-          if (tile.type === 'floor' && Math.random() < 0.05) {
+          // Add debris decorations
+          if (Math.random() < 0.05) {
             const debris = new THREE.Mesh(debrisGeom, debrisMat);
             debris.position.set(
               worldX + (Math.random() - 0.5) * TILE_SIZE * 0.8,
@@ -230,9 +315,37 @@ export class Renderer {
             debris.userData.mapObject = true;
             this.scene.add(debris);
           }
+
+          // Add cult floor symbols (rare)
+          if (Math.random() < 0.015) {
+            this.addFloorSymbol(worldX, worldZ);
+          }
         } else if (tile.type === 'wall') {
           matrix.setPosition(worldX, TILE_SIZE / 2, worldZ);
           wallInstanced.setMatrixAt(wallIndex++, matrix);
+
+          // Maybe add torch on walls adjacent to floor
+          if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
+            // Check if adjacent to floor
+            const hasFloorRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'floor';
+            const hasFloorLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'floor';
+            const hasFloorDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'floor';
+            const hasFloorUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'floor';
+
+            if (hasFloorRight) {
+              this.addTorch(worldX, worldZ, 'x', 1);
+              torchCount++;
+            } else if (hasFloorLeft) {
+              this.addTorch(worldX, worldZ, 'x', -1);
+              torchCount++;
+            } else if (hasFloorDown) {
+              this.addTorch(worldX, worldZ, 'z', 1);
+              torchCount++;
+            } else if (hasFloorUp) {
+              this.addTorch(worldX, worldZ, 'z', -1);
+              torchCount++;
+            }
+          }
         } else if (tile.type === 'puddle') {
           // Floor under puddle
           matrix.setPosition(worldX, 0, worldZ);
@@ -251,17 +364,29 @@ export class Renderer {
 
     this.scene.add(floorInstanced);
     this.scene.add(wallInstanced);
+
+    // Create cult altars
+    for (const pos of mapData.altarPositions) {
+      this.createAltar(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
+    }
   }
 
   updateCamera(targetPosition: Vec3): void {
-    // Smooth follow
+    // Update screen shake
+    this.updateShake();
+
+    // Smooth follow with shake offset
     const distance = 50;
     this.camera.position.set(
-      targetPosition.x + distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH),
-      targetPosition.y + distance * Math.sin(this.CAMERA_PITCH),
-      targetPosition.z + distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH)
+      targetPosition.x + distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.x,
+      targetPosition.y + distance * Math.sin(this.CAMERA_PITCH) + this.shakeOffset.y,
+      targetPosition.z + distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.z
     );
-    this.camera.lookAt(targetPosition.x, targetPosition.y, targetPosition.z);
+    this.camera.lookAt(
+      targetPosition.x + this.shakeOffset.x * 0.5,
+      targetPosition.y,
+      targetPosition.z + this.shakeOffset.z * 0.5
+    );
   }
 
   resize(width: number, height: number): void {
@@ -274,11 +399,29 @@ export class Renderer {
     this.camera.bottom = -viewSize;
     this.camera.updateProjectionMatrix();
 
-    this.renderer.setSize(width, height);
+    if (this.renderer) {
+      this.renderer.setSize(width, height);
+    }
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (!this.initialized) return;
+
+    if (this.usePostProcessing && this.postProcessing) {
+      this.postProcessing.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  async renderAsync(): Promise<void> {
+    if (!this.initialized) return;
+
+    if (this.usePostProcessing && this.postProcessing) {
+      await this.postProcessing.renderAsync();
+    } else {
+      await this.renderer.renderAsync(this.scene, this.camera);
+    }
   }
 
   // Accessors for entity creation
@@ -296,5 +439,302 @@ export class Renderer {
 
   removeFromScene(object: THREE.Object3D): void {
     this.scene.remove(object);
+  }
+
+  // Convert world position to screen coordinates
+  worldToScreen(worldPos: Vec3): { x: number; y: number } {
+    const vec = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z);
+    vec.project(this.camera);
+
+    return {
+      x: (vec.x * 0.5 + 0.5) * window.innerWidth,
+      y: (-vec.y * 0.5 + 0.5) * window.innerHeight,
+    };
+  }
+
+  // ============================================================================
+  // Screen Shake System
+  // ============================================================================
+
+  addScreenShake(intensity: number): void {
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+  }
+
+  private updateShake(): void {
+    if (this.shakeIntensity > 0.01) {
+      this.shakeOffset.set(
+        (Math.random() - 0.5) * this.shakeIntensity * 2,
+        (Math.random() - 0.5) * this.shakeIntensity,
+        (Math.random() - 0.5) * this.shakeIntensity * 2
+      );
+      this.shakeIntensity *= this.shakeDecay;
+    } else {
+      this.shakeOffset.set(0, 0, 0);
+      this.shakeIntensity = 0;
+    }
+  }
+
+  // ============================================================================
+  // Particle System
+  // ============================================================================
+
+  private initParticleSystem(): void {
+    this.particleGeometry = new THREE.SphereGeometry(0.08, 4, 4);
+
+    // Pre-allocate pool of 200 particles
+    for (let i = 0; i < 200; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        transparent: true,
+        opacity: 1,
+      });
+      const mesh = new THREE.Mesh(this.particleGeometry, mat);
+      mesh.visible = false;
+      this.scene.add(mesh);
+      this.particlePool.push(mesh);
+    }
+  }
+
+  spawnBloodBurst(position: Vec3, enemyType: EnemyType, count: number = 15): void {
+    const color = BLOOD_COLORS[enemyType];
+
+    for (let i = 0; i < count; i++) {
+      const mesh = this.particlePool.find((p) => !p.visible);
+      if (!mesh) continue;
+
+      mesh.visible = true;
+      mesh.position.set(position.x, position.y, position.z);
+      (mesh.material as THREE.MeshBasicMaterial).color.setHex(color);
+      (mesh.material as THREE.MeshBasicMaterial).opacity = 1;
+      mesh.scale.setScalar(1);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 5;
+      const upward = 2 + Math.random() * 4;
+
+      this.particles.push({
+        mesh,
+        velocity: new THREE.Vector3(
+          Math.cos(angle) * speed,
+          upward,
+          Math.sin(angle) * speed
+        ),
+        lifetime: 0,
+        maxLifetime: 0.4 + Math.random() * 0.3,
+      });
+    }
+  }
+
+  updateParticles(dt: number): void {
+    const gravity = -20;
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.lifetime += dt;
+
+      if (p.lifetime >= p.maxLifetime) {
+        p.mesh.visible = false;
+        this.particles.splice(i, 1);
+        continue;
+      }
+
+      // Physics
+      p.velocity.y += gravity * dt;
+      p.mesh.position.addScaledVector(p.velocity, dt);
+
+      // Fade out
+      const alpha = 1 - p.lifetime / p.maxLifetime;
+      (p.mesh.material as THREE.MeshBasicMaterial).opacity = alpha;
+
+      // Scale down
+      const scale = alpha * 0.8 + 0.2;
+      p.mesh.scale.setScalar(scale);
+    }
+  }
+
+  // ============================================================================
+  // Cult Altar System
+  // ============================================================================
+
+  private createAltar(x: number, z: number): void {
+    // Stone base (dark stone pedestal)
+    const baseGeom = new THREE.BoxGeometry(1.6, 0.4, 1.6);
+    const baseMat = new THREE.MeshLambertMaterial({ color: COLORS.altarStone });
+    const base = new THREE.Mesh(baseGeom, baseMat);
+    base.position.set(x, 0.2, z);
+    base.castShadow = true;
+    base.receiveShadow = true;
+    base.userData.mapObject = true;
+    this.scene.add(base);
+
+    // Upper tier (smaller)
+    const topGeom = new THREE.BoxGeometry(1.0, 0.25, 1.0);
+    const top = new THREE.Mesh(topGeom, baseMat);
+    top.position.set(x, 0.525, z);
+    top.castShadow = true;
+    top.userData.mapObject = true;
+    this.scene.add(top);
+
+    // Meatball emblem on top
+    const emblemMat = this.materials.get('emblem')!;
+    const emblemGeom = new THREE.PlaneGeometry(0.7, 0.7);
+    const emblem = new THREE.Mesh(emblemGeom, emblemMat);
+    emblem.position.set(x, 0.66, z);
+    emblem.rotation.x = -Math.PI / 2;
+    emblem.userData.mapObject = true;
+    this.scene.add(emblem);
+
+    // Four candles at corners
+    const candlePositions = [
+      { dx: -0.6, dz: -0.6 },
+      { dx: 0.6, dz: -0.6 },
+      { dx: -0.6, dz: 0.6 },
+      { dx: 0.6, dz: 0.6 },
+    ];
+
+    const candleGeom = new THREE.CylinderGeometry(0.06, 0.08, 0.3, 6);
+    const candleMat = new THREE.MeshLambertMaterial({ color: COLORS.altarCandle });
+    const flameGeom = new THREE.ConeGeometry(0.05, 0.12, 5);
+    const flameMat = new THREE.MeshBasicMaterial({ color: COLORS.candleFlame });
+
+    for (const pos of candlePositions) {
+      // Candle body
+      const candle = new THREE.Mesh(candleGeom, candleMat);
+      candle.position.set(x + pos.dx, 0.55, z + pos.dz);
+      candle.userData.mapObject = true;
+      this.scene.add(candle);
+
+      // Candle flame
+      const flame = new THREE.Mesh(flameGeom, flameMat);
+      flame.position.set(x + pos.dx, 0.76, z + pos.dz);
+      flame.userData.mapObject = true;
+      flame.userData.baseY = 0.76;
+      flame.userData.flickerTime = Math.random() * Math.PI * 2;
+      this.scene.add(flame);
+      this.torchFlames.push(flame);
+
+      // Small point light per candle
+      const light = new THREE.PointLight(0xff8844, 0.3, 4);
+      light.position.set(x + pos.dx, 0.8, z + pos.dz);
+      light.userData.mapObject = true;
+      light.userData.baseIntensity = 0.3;
+      light.userData.flickerTime = Math.random() * Math.PI * 2;
+      this.scene.add(light);
+      this.torchLights.push(light);
+    }
+  }
+
+  // ============================================================================
+  // Torch System
+  // ============================================================================
+
+  private addTorch(x: number, z: number, direction: 'x' | 'z', sign: number): void {
+    // Offset from wall
+    const offsetX = direction === 'x' ? sign * 0.3 : 0;
+    const offsetZ = direction === 'z' ? sign * 0.3 : 0;
+
+    // Torch holder
+    const holderGeom = new THREE.CylinderGeometry(0.05, 0.08, 0.3, 6);
+    const holderMat = new THREE.MeshLambertMaterial({ color: COLORS.torchHolder });
+    const holder = new THREE.Mesh(holderGeom, holderMat);
+    holder.position.set(x + offsetX, TILE_SIZE * 0.6, z + offsetZ);
+    holder.userData.mapObject = true;
+    this.scene.add(holder);
+
+    // Flame (cone)
+    const flameGeom = new THREE.ConeGeometry(0.12, 0.3, 6);
+    const flameMat = new THREE.MeshBasicMaterial({ color: COLORS.torch });
+    const flame = new THREE.Mesh(flameGeom, flameMat);
+    flame.position.set(x + offsetX, TILE_SIZE * 0.8, z + offsetZ);
+    flame.userData.mapObject = true;
+    flame.userData.baseY = TILE_SIZE * 0.8;
+    flame.userData.flickerTime = Math.random() * Math.PI * 2;
+    this.scene.add(flame);
+    this.torchFlames.push(flame);
+
+    // Point light
+    const light = new THREE.PointLight(0xff6633, 0.6, 10);
+    light.position.set(x + offsetX, TILE_SIZE * 0.9, z + offsetZ);
+    light.userData.mapObject = true;
+    light.userData.baseIntensity = 0.6;
+    light.userData.flickerTime = Math.random() * Math.PI * 2;
+    this.scene.add(light);
+    this.torchLights.push(light);
+  }
+
+  updateTorches(_time: number): void {
+    // Update torch lights with flickering
+    for (const light of this.torchLights) {
+      light.userData.flickerTime += 0.15;
+      const t = light.userData.flickerTime;
+      const flicker =
+        0.7 +
+        Math.sin(t * 3) * 0.15 +
+        Math.sin(t * 7) * 0.1 +
+        Math.random() * 0.05;
+      light.intensity = light.userData.baseIntensity * flicker;
+    }
+
+    // Update flame meshes
+    for (const flame of this.torchFlames) {
+      flame.userData.flickerTime += 0.1;
+      const t = flame.userData.flickerTime;
+      // Subtle movement
+      flame.position.y = flame.userData.baseY + Math.sin(t * 5) * 0.02;
+      flame.scale.y = 1 + Math.sin(t * 8) * 0.1;
+    }
+  }
+
+  // ============================================================================
+  // Blood Decals
+  // ============================================================================
+
+  spawnBloodDecal(x: number, z: number, size: number = 1): void {
+    // Recycle oldest if at limit
+    if (this.bloodDecals.length >= this.MAX_BLOOD_DECALS) {
+      const oldest = this.bloodDecals.shift()!;
+      this.scene.remove(oldest);
+      oldest.geometry.dispose();
+      (oldest.material as THREE.Material).dispose();
+    }
+
+    const geom = new THREE.CircleGeometry(0.3 * size + Math.random() * 0.2, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x440000 + Math.floor(Math.random() * 0x220000),
+      transparent: true,
+      opacity: 0.6,
+    });
+    const decal = new THREE.Mesh(geom, mat);
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.set(
+      x + (Math.random() - 0.5) * 0.5,
+      0.02,
+      z + (Math.random() - 0.5) * 0.5
+    );
+    decal.userData.mapObject = true;
+
+    this.scene.add(decal);
+    this.bloodDecals.push(decal);
+  }
+
+  // ============================================================================
+  // Cult Floor Symbols
+  // ============================================================================
+
+  private addFloorSymbol(x: number, z: number): void {
+    const geom = new THREE.PlaneGeometry(1.5, 1.5);
+    const emblemMat = this.materials.get('emblem') as THREE.MeshBasicMaterial;
+
+    const mat = new THREE.MeshBasicMaterial({
+      map: emblemMat.map,
+      transparent: true,
+      opacity: 0.25,
+    });
+    const symbol = new THREE.Mesh(geom, mat);
+    symbol.rotation.x = -Math.PI / 2;
+    symbol.rotation.z = Math.random() * Math.PI * 2;
+    symbol.position.set(x, 0.01, z);
+    symbol.userData.mapObject = true;
+    this.scene.add(symbol);
   }
 }

@@ -35,6 +35,22 @@ export interface PlayerState extends Entity {
   score: number;
   isDead: boolean;
   lastShootTime: number;
+  // Dash ability
+  dashCooldown: number;
+  isDashing: boolean;
+  dashDirection: Vec2;
+  dashStartTime: number;
+  // Combo system
+  comboCount: number;
+  comboTimer: number;
+  maxCombo: number;
+  // Active power-ups (expiry timestamps)
+  powerUps: {
+    rapidFire?: number;
+    spreadShot?: number;
+    vampire?: number;
+    shield?: number;
+  };
 }
 
 export interface EnemyState extends Entity {
@@ -44,6 +60,7 @@ export interface EnemyState extends Entity {
   enemyType: EnemyType;
   targetId: string | null;
   state: 'idle' | 'chasing' | 'attacking' | 'dead';
+  knockbackVelocity: Vec2;
 }
 
 export type EnemyType = 'grunt' | 'runner' | 'tank';
@@ -56,12 +73,14 @@ export interface ProjectileState extends Entity {
   createdAt: number;
 }
 
-export type PickupType = 'health' | 'ammo';
+export type PickupType = 'health' | 'ammo' | 'powerup';
+export type PowerUpType = 'rapidFire' | 'spreadShot' | 'vampire' | 'shield';
 
 export interface PickupState extends Entity {
   type: 'pickup';
   pickupType: PickupType;
   value: number;
+  powerUpType?: PowerUpType;
 }
 
 // ============================================================================
@@ -93,6 +112,7 @@ export interface MapData {
   rooms: Room[];
   spawnPoints: Vec2[];
   enemySpawnPoints: Vec2[];
+  altarPositions: Vec2[];
 }
 
 // ============================================================================
@@ -145,6 +165,7 @@ export interface InputState {
   shooting: boolean;
   reload: boolean;
   interact: boolean;
+  dash: boolean;
   sequence: number;
 }
 

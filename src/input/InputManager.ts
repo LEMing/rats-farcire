@@ -94,6 +94,7 @@ export class InputManager {
       shooting: this.mouseDown,
       reload: this.keys.has('r'),
       interact: this.keys.has('e'),
+      dash: this.keys.has(' '), // Space bar for dash
       sequence: this.sequence,
     };
   }

@@ -11,7 +11,6 @@ import type {
   EnemyType,
 } from '../shared/types';
 import {
-  TICK_RATE,
   TICK_INTERVAL,
   MAP_WIDTH,
   MAP_HEIGHT,
@@ -27,9 +26,13 @@ import {
   ENEMY_CONFIGS,
   TILE_SIZE,
   getWaveConfig,
+  getEnemySpeedMultiplier,
+  WAVE_START_DELAY,
   HEALTH_PACK_VALUE,
   AMMO_PACK_VALUE,
   PICKUP_SPAWN_CHANCE,
+  SHOTGUN_PELLETS,
+  SHOTGUN_SPREAD,
 } from '../shared/constants';
 import {
   generateId,
@@ -72,8 +75,7 @@ export class GameRoom {
   private waveEnemyCount = 0;
   private waveActive = false;
   private spawnTimer = 0;
-  private currentSpawnDelay = 2000;
-  private waveStartDelay = 5000;
+  private currentSpawnDelay = 800;
   private waveStartTimer = 0;
 
   constructor(id: string) {
@@ -91,7 +93,7 @@ export class GameRoom {
   start(): void {
     this.running = true;
     this.tickInterval = setInterval(() => this.update(), TICK_INTERVAL);
-    this.waveStartTimer = this.waveStartDelay;
+    this.waveStartTimer = WAVE_START_DELAY;
   }
 
   stop(): void {
@@ -122,6 +124,15 @@ export class GameRoom {
       score: 0,
       isDead: false,
       lastShootTime: 0,
+      // Dash ability
+      dashCooldown: 0,
+      isDashing: false,
+      dashDirection: { x: 0, y: 0 },
+      dashStartTime: 0,
+      // Combo system
+      comboCount: 0,
+      comboTimer: 0,
+      maxCombo: 0,
     };
 
     this.players.set(id, {
@@ -136,6 +147,7 @@ export class GameRoom {
         shooting: false,
         reload: false,
         interact: false,
+        dash: false,
         sequence: 0,
       },
     });
@@ -226,31 +238,40 @@ export class GameRoom {
 
     state.ammo--;
 
-    const direction = {
-      x: Math.sin(state.rotation),
-      y: Math.cos(state.rotation),
-    };
+    const baseAngle = state.rotation;
 
-    const projectile: ProjectileState = {
-      id: generateId(),
-      type: 'projectile',
-      position: {
-        x: state.position.x + direction.x * 0.5,
-        y: 0.5,
-        z: state.position.z + direction.y * 0.5,
-      },
-      rotation: state.rotation,
-      velocity: {
-        x: direction.x * PROJECTILE_SPEED,
-        y: direction.y * PROJECTILE_SPEED,
-      },
-      ownerId: state.id,
-      damage: PROJECTILE_DAMAGE,
-      lifetime: PROJECTILE_LIFETIME,
-      createdAt: this.tick * TICK_INTERVAL,
-    };
+    // Fire multiple pellets with spread (shotgun)
+    for (let i = 0; i < SHOTGUN_PELLETS; i++) {
+      const spreadOffset = (i / (SHOTGUN_PELLETS - 1) - 0.5) * SHOTGUN_SPREAD;
+      const randomOffset = (Math.random() - 0.5) * 0.08;
+      const angle = baseAngle + spreadOffset + randomOffset;
 
-    this.projectiles.set(projectile.id, projectile);
+      const direction = {
+        x: Math.sin(angle),
+        y: Math.cos(angle),
+      };
+
+      const projectile: ProjectileState = {
+        id: generateId(),
+        type: 'projectile',
+        position: {
+          x: state.position.x + direction.x * 0.5,
+          y: 0.5,
+          z: state.position.z + direction.y * 0.5,
+        },
+        rotation: angle,
+        velocity: {
+          x: direction.x * PROJECTILE_SPEED,
+          y: direction.y * PROJECTILE_SPEED,
+        },
+        ownerId: state.id,
+        damage: PROJECTILE_DAMAGE,
+        lifetime: PROJECTILE_LIFETIME,
+        createdAt: this.tick * TICK_INTERVAL,
+      };
+
+      this.projectiles.set(projectile.id, projectile);
+    }
   }
 
   private updateProjectiles(dt: number): void {
@@ -451,8 +472,10 @@ export class GameRoom {
       const moveY = toTarget.y + sepY * 0.3;
       const moveNorm = normalize({ x: moveX, y: moveY });
 
-      let newX = enemy.position.x + moveNorm.x * config.speed * dtSeconds;
-      let newZ = enemy.position.z + moveNorm.y * config.speed * dtSeconds;
+      // Speed scales with wave
+      const speed = config.speed * getEnemySpeedMultiplier(this.wave);
+      let newX = enemy.position.x + moveNorm.x * speed * dtSeconds;
+      let newZ = enemy.position.z + moveNorm.y * speed * dtSeconds;
 
       // Collision
       if (!this.isWalkable(newX, enemy.position.z)) {
@@ -515,7 +538,7 @@ export class GameRoom {
         payload: { wave: this.wave },
       });
 
-      this.waveStartTimer = this.waveStartDelay;
+      this.waveStartTimer = WAVE_START_DELAY;
     }
   }
 
@@ -567,6 +590,7 @@ export class GameRoom {
       enemyType,
       targetId: null,
       state: 'idle',
+      knockbackVelocity: { x: 0, y: 0 },
     };
 
     this.enemies.set(enemy.id, enemy);

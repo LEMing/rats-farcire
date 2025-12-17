@@ -3,71 +3,81 @@
 // ============================================================================
 
 // Tick rate and timing
-export const TICK_RATE = 20; // Server updates per second
+export const TICK_RATE = 30; // Server updates per second (increased from 20)
 export const TICK_INTERVAL = 1000 / TICK_RATE;
 export const CLIENT_RENDER_DELAY = 100; // ms of interpolation delay
 
 // Map
 export const TILE_SIZE = 2; // World units per tile
-export const MAP_WIDTH = 50; // tiles
-export const MAP_HEIGHT = 50; // tiles
-export const MIN_ROOM_SIZE = 4;
-export const MAX_ROOM_SIZE = 10;
-export const ROOM_COUNT = 8;
+export const MAP_WIDTH = 64; // tiles (larger map)
+export const MAP_HEIGHT = 64; // tiles
+export const MIN_ROOM_SIZE = 5;
+export const MAX_ROOM_SIZE = 12;
+export const ROOM_COUNT = 10;
 export const CORRIDOR_WIDTH = 2;
 
 // Player
 export const PLAYER_SPEED = 8; // units per second
 export const PLAYER_MAX_HEALTH = 100;
-export const PLAYER_START_AMMO = 30;
-export const PLAYER_MAX_AMMO = 90;
-export const PLAYER_HITBOX_RADIUS = 0.5;
+export const PLAYER_START_AMMO = 50; // more starting ammo
+export const PLAYER_MAX_AMMO = 150;
+export const PLAYER_HITBOX_RADIUS = 0.35;
 
-// Shooting
-export const SHOOT_COOLDOWN = 150; // ms
+// Shooting - shotgun style
+export const SHOOT_COOLDOWN = 400; // ms (slower for shotgun)
 export const PROJECTILE_SPEED = 25; // units per second
-export const PROJECTILE_DAMAGE = 25;
-export const PROJECTILE_LIFETIME = 2000; // ms
-export const PROJECTILE_HITBOX_RADIUS = 0.15;
+export const PROJECTILE_DAMAGE = 15; // damage per pellet
+export const PROJECTILE_LIFETIME = 800; // ms (shorter range)
+export const PROJECTILE_HITBOX_RADIUS = 0.12;
 
-// Enemies
+// Shotgun spread
+export const SHOTGUN_PELLETS = 6; // pellets per shot
+export const SHOTGUN_SPREAD = 0.25; // radians spread angle (~15 degrees total)
+
+// Enemies - faster base speeds
 export const ENEMY_CONFIGS = {
   grunt: {
-    health: 50,
-    speed: 3,
-    damage: 10,
-    attackCooldown: 1000,
-    attackRange: 1.5,
-    hitboxRadius: 0.6,
+    health: 40,
+    speed: 5, // faster
+    damage: 18,
+    attackCooldown: 800,
+    attackRange: 0.7,
+    hitboxRadius: 0.55,
     score: 10,
   },
   runner: {
-    health: 30,
-    speed: 6,
-    damage: 5,
-    attackCooldown: 500,
-    attackRange: 1.2,
+    health: 25,
+    speed: 8, // much faster
+    damage: 8,
+    attackCooldown: 400,
+    attackRange: 0.6,
     hitboxRadius: 0.4,
     score: 15,
   },
   tank: {
-    health: 150,
-    speed: 1.5,
-    damage: 25,
-    attackCooldown: 2000,
-    attackRange: 2,
-    hitboxRadius: 0.9,
+    health: 120,
+    speed: 3, // faster than before
+    damage: 30,
+    attackCooldown: 1500,
+    attackRange: 1.0,
+    hitboxRadius: 0.8,
     score: 30,
   },
 } as const;
 
-// Waves
+// Enemy speed scaling per wave
+export function getEnemySpeedMultiplier(wave: number): number {
+  return 1 + wave * 0.1; // 10% faster each wave
+}
+
+// Waves - more enemies, faster spawning
+export const WAVE_START_DELAY = 2000; // 2 seconds between waves (was 3-5)
 export const WAVE_CONFIGS = [
-  { enemyCount: 5, types: [{ type: 'grunt', weight: 1 }], spawnDelay: 2000 },
-  { enemyCount: 8, types: [{ type: 'grunt', weight: 0.8 }, { type: 'runner', weight: 0.2 }], spawnDelay: 1800 },
-  { enemyCount: 12, types: [{ type: 'grunt', weight: 0.6 }, { type: 'runner', weight: 0.4 }], spawnDelay: 1500 },
-  { enemyCount: 15, types: [{ type: 'grunt', weight: 0.5 }, { type: 'runner', weight: 0.3 }, { type: 'tank', weight: 0.2 }], spawnDelay: 1200 },
-  { enemyCount: 20, types: [{ type: 'grunt', weight: 0.4 }, { type: 'runner', weight: 0.4 }, { type: 'tank', weight: 0.2 }], spawnDelay: 1000 },
+  { enemyCount: 6, types: [{ type: 'grunt', weight: 1 }], spawnDelay: 800 },
+  { enemyCount: 10, types: [{ type: 'grunt', weight: 0.7 }, { type: 'runner', weight: 0.3 }], spawnDelay: 700 },
+  { enemyCount: 14, types: [{ type: 'grunt', weight: 0.5 }, { type: 'runner', weight: 0.5 }], spawnDelay: 600 },
+  { enemyCount: 18, types: [{ type: 'grunt', weight: 0.4 }, { type: 'runner', weight: 0.4 }, { type: 'tank', weight: 0.2 }], spawnDelay: 500 },
+  { enemyCount: 24, types: [{ type: 'grunt', weight: 0.3 }, { type: 'runner', weight: 0.5 }, { type: 'tank', weight: 0.2 }], spawnDelay: 400 },
 ] as const;
 
 // Get wave config (cycles with increasing difficulty)
@@ -77,21 +87,64 @@ export function getWaveConfig(wave: number) {
   const multiplier = Math.floor((wave - 1) / WAVE_CONFIGS.length) + 1;
 
   return {
-    enemyCount: Math.floor(config.enemyCount * multiplier * 1.2),
+    enemyCount: Math.floor((4 + wave * 2) * multiplier), // Simple scaling like codex
     types: [...config.types] as { type: 'grunt' | 'runner' | 'tank'; weight: number }[],
-    spawnDelay: Math.max(500, config.spawnDelay - multiplier * 100),
+    spawnDelay: Math.max(300, config.spawnDelay - multiplier * 50),
   };
 }
 
 // Pickups
-export const HEALTH_PACK_VALUE = 25;
-export const AMMO_PACK_VALUE = 15;
-export const PICKUP_SPAWN_CHANCE = 0.3; // 30% chance on enemy death
+export const HEALTH_PACK_VALUE = 45; // more health per pack
+export const AMMO_PACK_VALUE = 20;
+export const PICKUP_SPAWN_CHANCE = 0.4; // 40% chance on enemy death
 
 // Networking
 export const SERVER_PORT = 8080;
 export const MAX_PLAYERS_PER_ROOM = 4;
 export const SNAPSHOT_BUFFER_SIZE = 32;
+
+// Dash ability
+export const DASH_SPEED = 25;
+export const DASH_DURATION = 150; // ms
+export const DASH_COOLDOWN = 800; // ms
+export const DASH_IFRAMES = true;
+
+// Combo system
+export const COMBO_TIMEOUT = 2000; // ms to maintain combo
+export const COMBO_SCORE_MULTIPLIER = 0.5; // 50% bonus per combo level
+
+// Power-ups
+export const POWERUP_DURATION = 8000; // ms
+export const POWERUP_DROP_CHANCE = 0.15; // 15% chance on kill
+export const POWERUP_CONFIGS = {
+  rapidFire: {
+    color: 0xff6600,
+    fireRateMultiplier: 2.5,
+    name: 'RAPID FIRE',
+  },
+  spreadShot: {
+    color: 0x00ffff,
+    pelletMultiplier: 2,
+    name: 'SPREAD SHOT',
+  },
+  vampire: {
+    color: 0xff00ff,
+    healPerKill: 15,
+    name: 'VAMPIRE',
+  },
+  shield: {
+    color: 0x00ff00,
+    damageReduction: 0.5,
+    name: 'SHIELD',
+  },
+} as const;
+
+// Blood/particle colors by enemy type
+export const BLOOD_COLORS = {
+  grunt: 0x990000,
+  runner: 0xcc3300,
+  tank: 0x660033,
+} as const;
 
 // Colors (hex)
 export const COLORS = {
@@ -99,12 +152,19 @@ export const COLORS = {
   wall: 0x2a2a40,
   debris: 0x4a4a6a,
   puddle: 0x2d4a5c,
-  player: 0x4ecdc4,
-  enemy: 0xff6b6b,
-  enemyRunner: 0xffa07a,
-  enemyTank: 0x8b0000,
-  projectile: 0xffff00,
-  health: 0x00ff00,
+  player: 0x79c0ff, // brighter blue like codex
+  enemy: 0xe26b6b, // slightly different red
+  enemyRunner: 0xff8866,
+  enemyTank: 0x993333,
+  projectile: 0xfff4b2, // warm yellow like codex
+  health: 0x7cff79, // brighter green
   ammo: 0xffd700,
-  emblem: 0x8b4513, // Brown for meatball emblem (will be blurred)
+  emblem: 0xb44646, // meatball color
+  torch: 0xff6600,
+  torchHolder: 0x4a3728,
+  muzzleFlash: 0xffff88,
+  dashTrail: 0x4488ff,
+  altarStone: 0x3a3a4a,
+  altarCandle: 0xddcc88,
+  candleFlame: 0xff9944,
 } as const;

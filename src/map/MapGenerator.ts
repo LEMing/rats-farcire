@@ -41,6 +41,7 @@ export class MapGenerator {
     // Find spawn points
     const spawnPoints = this.findSpawnPoints();
     const enemySpawnPoints = this.findEnemySpawnPoints();
+    const altarPositions = this.findAltarPositions();
 
     return {
       width: this.width,
@@ -49,6 +50,7 @@ export class MapGenerator {
       rooms: this.rooms,
       spawnPoints,
       enemySpawnPoints,
+      altarPositions,
     };
   }
 
@@ -287,5 +289,23 @@ export class MapGenerator {
     }
 
     return enemySpawnPoints;
+  }
+
+  private findAltarPositions(): Vec2[] {
+    const altarPositions: Vec2[] = [];
+
+    // Place altars in 30% of non-spawn rooms (skip first room which is player spawn)
+    for (let i = 1; i < this.rooms.length; i++) {
+      if (this.rng.next() < 0.3) {
+        const room = this.rooms[i];
+        // Place altar at room center
+        altarPositions.push({
+          x: Math.floor(room.x + room.width / 2),
+          y: Math.floor(room.y + room.height / 2),
+        });
+      }
+    }
+
+    return altarPositions;
   }
 }

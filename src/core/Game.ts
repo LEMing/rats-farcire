@@ -27,6 +27,13 @@ export class Game {
   private accumulator = 0;
   private readonly tickInterval = 1000 / TICK_RATE;
 
+  // Hitstop system
+  private hitstopTimer = 0;
+  private readonly HITSTOP_DURATION = 30; // ms
+
+  // Game time for effects
+  private gameTime = 0;
+
   constructor() {
     const container = document.getElementById('game-container')!;
 
@@ -39,7 +46,10 @@ export class Game {
     this.resize();
   }
 
-  start(multiplayer: boolean): void {
+  async start(multiplayer: boolean): Promise<void> {
+    // Initialize WebGPU renderer
+    await this.renderer.init();
+
     this.isMultiplayer = multiplayer;
 
     if (multiplayer) {
@@ -54,8 +64,22 @@ export class Game {
     const generator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, Date.now());
     this.mapData = generator.generate();
 
-    // Create local game loop
-    this.localLoop = new LocalGameLoop(this.mapData, this.entities, this.ui);
+    // Create local game loop with renderer for effects
+    this.localLoop = new LocalGameLoop(this.mapData, this.entities, this.ui, this.renderer);
+
+    // Set up hitstop callback
+    this.localLoop.onHitstop = () => {
+      this.hitstopTimer = this.HITSTOP_DURATION;
+    };
+
+    // Set up death callback
+    this.localLoop.onPlayerDeath = (score, wave, maxCombo) => {
+      // Delay game over screen slightly for dramatic effect
+      setTimeout(() => {
+        this.isRunning = false;
+        this.ui.showGameOver(score, wave, maxCombo);
+      }, 800);
+    };
 
     // Build map visuals
     this.renderer.buildMap(this.mapData);
@@ -137,6 +161,12 @@ export class Game {
   }
 
   private fixedUpdate(): void {
+    // Hitstop - pause game logic briefly
+    if (this.hitstopTimer > 0) {
+      this.hitstopTimer -= this.tickInterval;
+      return;
+    }
+
     const inputState = this.input.getState();
 
     if (this.isMultiplayer && this.network) {
@@ -149,8 +179,17 @@ export class Game {
   }
 
   private render(alpha: number): void {
+    // Track game time for effects
+    this.gameTime += 16; // Approx 60fps
+
     // Update entity visuals with interpolation
     this.entities.updateVisuals(alpha);
+
+    // Update particles
+    this.renderer.updateParticles(0.016); // 60fps dt
+
+    // Update torch flickering
+    this.renderer.updateTorches(this.gameTime);
 
     // Update crosshair position
     this.ui.updateCrosshair(this.input.mouseX, this.input.mouseY);

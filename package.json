@@ -11,13 +11,13 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run server\""
   },
   "dependencies": {
-    "three": "^0.160.0",
-    "ws": "^8.16.0",
-    "uuid": "^9.0.1"
+    "three": "^0.182.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@types/three": "^0.160.0",
+    "@types/three": "^0.182.0",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
     "concurrently": "^8.2.2",
