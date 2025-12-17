@@ -123,7 +123,10 @@ export class MenuRenderer {
   }
 
   private initializeRenderer(): void {
-    this.renderer = new THREE.WebGPURenderer({ antialias: true });
+    this.renderer = new THREE.WebGPURenderer({
+      antialias: true,
+      forceWebGL: true, // Force WebGL backend for better compatibility
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.container.appendChild(this.renderer.domElement);

@@ -92,9 +92,10 @@ export class Renderer {
     if (this.initialized) return;
 
     try {
-      // Create WebGPU renderer
+      // Create WebGPU renderer (forces WebGL for better compatibility)
       this.renderer = new THREE.WebGPURenderer({
         antialias: true,
+        forceWebGL: true,
       });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.setSize(window.innerWidth, window.innerHeight);
