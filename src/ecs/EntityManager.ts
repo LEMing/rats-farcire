@@ -38,6 +38,14 @@ export class EntityManager {
   // Enemy state tracking for speech bubble animation
   private enemyStates: Map<string, EnemyState> = new Map();
 
+  // Damage visual state tracking
+  private enemyDamageStates: Map<string, {
+    flashTime: number;       // Time remaining for white flash
+    staggerOffset: { x: number; z: number };  // Current shake offset
+    staggerTime: number;     // Time remaining for shake
+    lastHealth: number;      // Track health for showing damage
+  }> = new Map();
+
   // Shared speech bubble geometry/material
   private bubbleGeometry!: THREE.PlaneGeometry;
   private bubbleMaterial!: THREE.MeshBasicMaterial;
@@ -222,53 +230,148 @@ export class EntityManager {
   createEnemy(state: EnemyState): void {
     const group = new THREE.Group();
 
-    // Body (cone)
-    const bodyGeom = this.renderer.getGeometry('enemyBody')!;
-    let bodyMat: THREE.Material;
+    // === CULT RAT MODEL ===
+    // Colors based on enemy type
+    let furColor = 0x554433; // Brown fur
+    let robeColor = 0x442222; // Dark red cult robe
+    let eyeColor = 0xff0000; // Evil red eyes
 
     switch (state.enemyType) {
       case 'runner':
-        bodyMat = this.renderer.getMaterial('enemyRunner')!;
+        furColor = 0x665544; // Lighter brown
+        robeColor = 0x553322; // Orange-ish robe
+        eyeColor = 0xff6600; // Orange eyes
         break;
       case 'tank':
-        bodyMat = this.renderer.getMaterial('enemyTank')!;
+        furColor = 0x333322; // Dark grey-brown
+        robeColor = 0x330011; // Deep crimson robe
+        eyeColor = 0xff0044; // Bright red eyes
         break;
-      default:
-        bodyMat = this.renderer.getMaterial('enemy')!;
     }
 
-    const body = new THREE.Mesh(bodyGeom, bodyMat);
-    body.castShadow = true;
-    body.rotation.x = Math.PI; // Point up
-    group.add(body);
+    const furMat = new THREE.MeshLambertMaterial({ color: furColor });
+    const robeMat = new THREE.MeshLambertMaterial({ color: robeColor });
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xddaa99 }); // Pink skin
 
-    // Blurred emblem on back
+    // --- Cult Robe (hooded cloak) ---
+    const robeGeom = new THREE.ConeGeometry(0.4, 0.7, 8);
+    const robe = new THREE.Mesh(robeGeom, robeMat);
+    robe.position.y = 0.35;
+    robe.castShadow = true;
+    group.add(robe);
+
+    // Hood
+    const hoodGeom = new THREE.SphereGeometry(0.25, 8, 6, 0, Math.PI * 2, 0, Math.PI * 0.6);
+    const hood = new THREE.Mesh(hoodGeom, robeMat);
+    hood.position.set(0, 0.65, -0.05);
+    hood.rotation.x = 0.3;
+    group.add(hood);
+
+    // --- Rat Head (poking out of hood) ---
+    const headGeom = new THREE.SphereGeometry(0.18, 8, 8);
+    const head = new THREE.Mesh(headGeom, furMat);
+    head.position.set(0, 0.7, 0.1);
+    head.scale.set(1, 0.9, 1.1);
+    group.add(head);
+
+    // Snout
+    const snoutGeom = new THREE.ConeGeometry(0.08, 0.2, 6);
+    const snout = new THREE.Mesh(snoutGeom, furMat);
+    snout.position.set(0, 0.65, 0.28);
+    snout.rotation.x = Math.PI / 2;
+    group.add(snout);
+
+    // Nose (pink)
+    const noseGeom = new THREE.SphereGeometry(0.04, 6, 6);
+    const nose = new THREE.Mesh(noseGeom, skinMat);
+    nose.position.set(0, 0.65, 0.38);
+    group.add(nose);
+
+    // Evil eyes (glowing)
+    const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
+    const eyeGeom = new THREE.SphereGeometry(0.04, 6, 6);
+
+    const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+    leftEye.position.set(-0.08, 0.73, 0.22);
+    group.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+    rightEye.position.set(0.08, 0.73, 0.22);
+    group.add(rightEye);
+
+    // --- Rat Ears (poking through hood) ---
+    const earGeom = new THREE.ConeGeometry(0.1, 0.18, 6);
+    const earMat = new THREE.MeshLambertMaterial({ color: 0xddaaaa }); // Pink inner ear
+
+    const leftEar = new THREE.Mesh(earGeom, furMat);
+    leftEar.position.set(-0.18, 0.85, 0);
+    leftEar.rotation.z = -0.4;
+    leftEar.rotation.x = -0.2;
+    group.add(leftEar);
+
+    const rightEar = new THREE.Mesh(earGeom, furMat);
+    rightEar.position.set(0.18, 0.85, 0);
+    rightEar.rotation.z = 0.4;
+    rightEar.rotation.x = -0.2;
+    group.add(rightEar);
+
+    // Inner ear (pink)
+    const innerEarGeom = new THREE.ConeGeometry(0.06, 0.12, 6);
+    const leftInnerEar = new THREE.Mesh(innerEarGeom, earMat);
+    leftInnerEar.position.set(-0.17, 0.84, 0.02);
+    leftInnerEar.rotation.z = -0.4;
+    leftInnerEar.rotation.x = -0.2;
+    group.add(leftInnerEar);
+
+    const rightInnerEar = new THREE.Mesh(innerEarGeom, earMat);
+    rightInnerEar.position.set(0.17, 0.84, 0.02);
+    rightInnerEar.rotation.z = 0.4;
+    rightInnerEar.rotation.x = -0.2;
+    group.add(rightInnerEar);
+
+    // --- Rat Tail (curving out from robe) ---
+    const tailSegments = 6;
+    const ratTailMat = new THREE.MeshLambertMaterial({ color: 0xddaa99 }); // Pink tail
+    for (let i = 0; i < tailSegments; i++) {
+      const t = i / tailSegments;
+      const radius = 0.03 * (1 - t * 0.6);
+      const segGeom = new THREE.SphereGeometry(radius, 6, 6);
+      const seg = new THREE.Mesh(segGeom, ratTailMat);
+      // Curve the tail
+      seg.position.set(
+        0,
+        0.1 + t * 0.15,
+        -0.35 - t * 0.4 + Math.sin(t * Math.PI) * 0.1
+      );
+      group.add(seg);
+    }
+
+    // --- Whiskers ---
+    const whiskerMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+    for (let side = -1; side <= 1; side += 2) {
+      for (let i = 0; i < 3; i++) {
+        const whiskerGeom = new THREE.CylinderGeometry(0.005, 0.005, 0.15, 4);
+        const whisker = new THREE.Mesh(whiskerGeom, whiskerMat);
+        whisker.position.set(side * 0.1, 0.63 + i * 0.03, 0.32);
+        whisker.rotation.z = side * (0.3 + i * 0.15);
+        whisker.rotation.x = 0.2;
+        group.add(whisker);
+      }
+    }
+
+    // --- Cult emblem on robe back ---
     const emblemMat = this.renderer.getMaterial('emblem')!;
-    const emblemGeom = new THREE.PlaneGeometry(0.4, 0.4);
+    const emblemGeom = new THREE.PlaneGeometry(0.3, 0.3);
     const emblem = new THREE.Mesh(emblemGeom, emblemMat);
-    emblem.position.set(0, 0.3, -0.3);
+    emblem.position.set(0, 0.4, -0.32);
     emblem.rotation.y = Math.PI;
     group.add(emblem);
 
-    // Ears (small cones for rat)
-    const earGeom = new THREE.ConeGeometry(0.15, 0.3, 4);
-    const earMat = new THREE.MeshLambertMaterial({ color: 0xff8888 });
-
-    const leftEar = new THREE.Mesh(earGeom, earMat);
-    leftEar.position.set(-0.25, 0.4, 0);
-    leftEar.rotation.z = -0.3;
-    group.add(leftEar);
-
-    const rightEar = new THREE.Mesh(earGeom, earMat);
-    rightEar.position.set(0.25, 0.4, 0);
-    rightEar.rotation.z = 0.3;
-    group.add(rightEar);
-
     // Scale based on type
     if (state.enemyType === 'tank') {
-      group.scale.setScalar(1.5);
+      group.scale.setScalar(1.4);
     } else if (state.enemyType === 'runner') {
-      group.scale.setScalar(0.8);
+      group.scale.setScalar(0.75);
     }
 
     // Speech bubble with cult symbol (thought bubble effect)
@@ -300,6 +403,37 @@ export class EntityManager {
     bubbleGroup.userData.pulseTime = Math.random() * Math.PI * 2;
     bubbleGroup.userData.baseScale = 0.6;
     group.add(bubbleGroup);
+
+    // --- Health bar (hidden by default, shown when damaged) ---
+    const healthBarGroup = new THREE.Group();
+    healthBarGroup.name = 'healthBar';
+
+    // Background bar (dark red)
+    const healthBgGeom = new THREE.PlaneGeometry(0.8, 0.1);
+    const healthBgMat = new THREE.MeshBasicMaterial({
+      color: 0x440000,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    });
+    const healthBg = new THREE.Mesh(healthBgGeom, healthBgMat);
+    healthBg.name = 'healthBarBg';
+    healthBarGroup.add(healthBg);
+
+    // Foreground bar (red)
+    const healthFgGeom = new THREE.PlaneGeometry(0.8, 0.1);
+    const healthFgMat = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    });
+    const healthFg = new THREE.Mesh(healthFgGeom, healthFgMat);
+    healthFg.name = 'healthBarFg';
+    healthBarGroup.add(healthFg);
+
+    healthBarGroup.position.set(0, 1.0, 0);
+    group.add(healthBarGroup);
 
     group.position.set(state.position.x, state.position.y, state.position.z);
     group.rotation.y = state.rotation;
@@ -430,6 +564,7 @@ export class EntityManager {
     }
     // Also clean up enemy state tracking
     this.enemyStates.delete(id);
+    this.enemyDamageStates.delete(id);
   }
 
   // Fade out an enemy over time (death animation)
@@ -465,6 +600,71 @@ export class EntityManager {
     };
 
     requestAnimationFrame(fade);
+  }
+
+  // Trigger damage visual effects on enemy
+  damageEnemy(id: string, health: number, maxHealth: number): void {
+    const entity = this.entities.get(id);
+    if (!entity) return;
+
+    // Initialize or update damage state
+    let damageState = this.enemyDamageStates.get(id);
+    if (!damageState) {
+      damageState = {
+        flashTime: 0,
+        staggerOffset: { x: 0, z: 0 },
+        staggerTime: 0,
+        lastHealth: maxHealth,
+      };
+      this.enemyDamageStates.set(id, damageState);
+    }
+
+    // Trigger flash (150ms)
+    damageState.flashTime = 150;
+
+    // Trigger stagger/shake (200ms)
+    damageState.staggerTime = 200;
+
+    // Store health
+    damageState.lastHealth = health;
+
+    // Immediate white flash on all materials
+    entity.mesh.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.name !== 'speechBubble' && child.name !== 'healthBar') {
+        const mat = child.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          mat.emissive.setRGB(1, 1, 1);
+        }
+      }
+    });
+
+    // Update health bar visibility and scale
+    const healthBar = entity.mesh.getObjectByName('healthBar');
+    if (healthBar) {
+      const healthPercent = Math.max(0, health / maxHealth);
+
+      // Show health bar when damaged
+      const bg = healthBar.getObjectByName('healthBarBg') as THREE.Mesh;
+      const fg = healthBar.getObjectByName('healthBarFg') as THREE.Mesh;
+
+      if (bg && fg) {
+        // Fade in health bar
+        (bg.material as THREE.MeshBasicMaterial).opacity = 0.8;
+        (fg.material as THREE.MeshBasicMaterial).opacity = 0.9;
+
+        // Scale foreground to show health remaining
+        fg.scale.x = healthPercent;
+        fg.position.x = -(1 - healthPercent) * 0.4; // Offset to left
+
+        // Color gradient: green -> yellow -> red
+        const fgMat = fg.material as THREE.MeshBasicMaterial;
+        if (healthPercent > 0.5) {
+          fgMat.color.setRGB(1 - (healthPercent - 0.5) * 2, 1, 0);
+        } else {
+          fgMat.color.setRGB(1, healthPercent * 2, 0);
+        }
+      }
+    }
   }
 
   // ============================================================================
@@ -555,12 +755,84 @@ export class EntityManager {
           bubbleGroup.quaternion.copy(this.renderer.camera.quaternion);
         }
 
-        // Attack telegraph - red glow when attacking
+        // Damage flash and stagger effects
+        const damageState = this.enemyDamageStates.get(id);
         const enemyState = this.enemyStates.get(id);
-        if (enemyState?.state === 'attacking') {
-          // Pulse the enemy red when attacking
+
+        if (damageState) {
+          const dt = 16; // Approximate frame time in ms
+
+          // Update flash timer
+          if (damageState.flashTime > 0) {
+            damageState.flashTime -= dt;
+            const flashIntensity = damageState.flashTime / 150;
+
+            // Flash from white to red to normal
+            entity.mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh &&
+                  !child.name.includes('healthBar') &&
+                  child.name !== 'speechBubble') {
+                const mat = child.material as THREE.MeshLambertMaterial;
+                if (mat.emissive) {
+                  // White -> red fade
+                  mat.emissive.setRGB(flashIntensity, flashIntensity * 0.3, flashIntensity * 0.3);
+                }
+              }
+            });
+          } else if (enemyState?.state === 'attacking') {
+            // Attack telegraph - red glow when attacking
+            entity.mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh &&
+                  !child.name.includes('healthBar') &&
+                  child.name !== 'speechBubble') {
+                const mat = child.material as THREE.MeshLambertMaterial;
+                if (mat.emissive) {
+                  const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
+                  mat.emissive.setRGB(pulse * 0.5, 0, 0);
+                }
+              }
+            });
+          } else {
+            // Reset emissive
+            entity.mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh &&
+                  !child.name.includes('healthBar') &&
+                  child.name !== 'speechBubble') {
+                const mat = child.material as THREE.MeshLambertMaterial;
+                if (mat.emissive) {
+                  mat.emissive.setRGB(0, 0, 0);
+                }
+              }
+            });
+          }
+
+          // Update stagger shake
+          if (damageState.staggerTime > 0) {
+            damageState.staggerTime -= dt;
+            // Random shake that decays
+            const shakeIntensity = (damageState.staggerTime / 200) * 0.15;
+            damageState.staggerOffset.x = (Math.random() - 0.5) * shakeIntensity;
+            damageState.staggerOffset.z = (Math.random() - 0.5) * shakeIntensity;
+          } else {
+            // Reset shake offset
+            damageState.staggerOffset.x = 0;
+            damageState.staggerOffset.z = 0;
+          }
+
+          // Apply stagger offset to model (not to tracked position)
+          // This is purely visual shake
+          entity.mesh.children.forEach(child => {
+            if (child.name !== 'healthBar' && child.name !== 'speechBubble') {
+              child.position.x = damageState.staggerOffset.x;
+              child.position.z = damageState.staggerOffset.z;
+            }
+          });
+        } else if (enemyState?.state === 'attacking') {
+          // Attack telegraph - red glow when attacking (no damage state yet)
           entity.mesh.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.name !== 'speechBubble') {
+            if (child instanceof THREE.Mesh &&
+                !child.name.includes('healthBar') &&
+                child.name !== 'speechBubble') {
               const mat = child.material as THREE.MeshLambertMaterial;
               if (mat.emissive) {
                 const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
@@ -568,16 +840,12 @@ export class EntityManager {
               }
             }
           });
-        } else {
-          // Reset emissive when not attacking
-          entity.mesh.traverse((child) => {
-            if (child instanceof THREE.Mesh && child.name !== 'speechBubble') {
-              const mat = child.material as THREE.MeshLambertMaterial;
-              if (mat.emissive) {
-                mat.emissive.setRGB(0, 0, 0);
-              }
-            }
-          });
+        }
+
+        // Health bar billboard - face camera
+        const healthBar = entity.mesh.getObjectByName('healthBar');
+        if (healthBar) {
+          healthBar.quaternion.copy(this.renderer.camera.quaternion);
         }
       }
     }

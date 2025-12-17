@@ -366,6 +366,9 @@ export class LocalGameLoop {
           // Damage enemy
           enemy.health -= proj.damage;
 
+          // Trigger damage visual effects (flash, shake, health bar)
+          this.entities.damageEnemy(enemyId, enemy.health, config.health);
+
           // Apply knockback
           const knockbackDir = normalize({
             x: enemy.position.x - proj.position.x,
@@ -390,8 +393,8 @@ export class LocalGameLoop {
             0
           );
 
-          // Small blood burst on hit
-          this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 3);
+          // Blood burst on hit (more particles for better feedback)
+          this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 6);
 
           // Trigger hitstop
           if (this.onHitstop) {
