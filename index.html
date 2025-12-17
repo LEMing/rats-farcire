@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rats Farcire - Top-Down Shooter</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        overflow: hidden;
+        background: #1a1a2e;
+        font-family: 'Courier New', monospace;
+      }
+
+      #game-container {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      #ui-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        color: #fff;
+      }
+
+      #hud {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        font-size: 18px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+      }
+
+      #hud > div {
+        margin-bottom: 8px;
+      }
+
+      #health-bar {
+        width: 200px;
+        height: 20px;
+        background: #333;
+        border: 2px solid #666;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      #health-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #ff4444, #ff6666);
+        transition: width 0.2s;
+      }
+
+      #wave-info {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        text-align: right;
+        font-size: 24px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+      }
+
+      #network-info {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        font-size: 14px;
+        color: #888;
+      }
+
+      #crosshair {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+      }
+
+      #crosshair::before,
+      #crosshair::after {
+        content: '';
+        position: absolute;
+        background: #fff;
+      }
+
+      #crosshair::before {
+        width: 2px;
+        height: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      #crosshair::after {
+        width: 100%;
+        height: 2px;
+        top: 50%;
+        transform: translateY(-50%);
+      }
+
+      #menu-screen {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: rgba(26, 26, 46, 0.95);
+        pointer-events: auto;
+      }
+
+      #menu-screen h1 {
+        font-size: 48px;
+        color: #ff6b6b;
+        margin-bottom: 40px;
+        text-shadow: 4px 4px 8px rgba(0, 0, 0, 0.8);
+      }
+
+      #menu-screen button {
+        padding: 15px 40px;
+        font-size: 20px;
+        margin: 10px;
+        cursor: pointer;
+        background: #4a4a8a;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        transition: all 0.2s;
+        font-family: inherit;
+      }
+
+      #menu-screen button:hover {
+        background: #6a6aaa;
+        transform: scale(1.05);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container">
+      <div id="ui-overlay">
+        <div id="hud">
+          <div id="health-bar">
+            <div id="health-fill" style="width: 100%"></div>
+          </div>
+          <div>Score: <span id="score">0</span></div>
+          <div>Ammo: <span id="ammo">30</span></div>
+        </div>
+
+        <div id="wave-info">
+          <div>Wave <span id="wave">1</span></div>
+          <div id="enemies-left">Enemies: <span>0</span></div>
+        </div>
+
+        <div id="network-info">
+          <div>Ping: <span id="ping">0</span>ms</div>
+          <div>Status: <span id="connection-status">Offline</span></div>
+        </div>
+
+        <div id="crosshair"></div>
+
+        <div id="menu-screen">
+          <h1>RATS FARCIRE</h1>
+          <button id="btn-singleplayer">Single Player</button>
+          <button id="btn-multiplayer">Multiplayer</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "rats-farcire",
+  "version": "1.0.0",
+  "description": "Isometric 2.5D top-down shooter with rat cultists",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "server": "tsx watch server/index.ts",
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\""
+  },
+  "dependencies": {
+    "three": "^0.160.0",
+    "ws": "^8.16.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/three": "^0.160.0",
+    "@types/uuid": "^9.0.7",
+    "@types/ws": "^8.5.10",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10"
+  }
+}

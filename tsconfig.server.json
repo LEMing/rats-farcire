@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "skipLibCheck": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "./dist/server",
+    "rootDir": ".",
+    "paths": {
+      "@shared/*": ["./shared/*"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["server", "shared"]
+}
