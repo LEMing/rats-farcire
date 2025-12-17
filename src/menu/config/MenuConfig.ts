@@ -72,13 +72,19 @@ export const MenuConfig = {
     },
   },
 
-  // Procedural background - dark purple horror
+  // Procedural background - infinite fullscreen shader
   background: {
-    width: 40,
-    height: 30,
-    positionZ: -15,
-    noiseScale: 8.0,
-    paperColor: { r: 0.08, g: 0.04, b: 0.1 },
+    noiseScale: 3.0,
+    paperColor: { r: 0.05, g: 0.02, b: 0.08 },
+    // Swirling vortex effect
+    vortexSpeed: 0.15,
+    vortexStrength: 0.3,
+    // Fog/atmosphere layers
+    fogLayers: 4,
+    fogSpeed: 0.08,
+    // Pulse effect
+    pulseSpeed: 0.8,
+    pulseIntensity: 0.15,
   },
 
   // Blood splatters (positions and sizes)
@@ -134,14 +140,34 @@ export const MenuConfig = {
     lightFlickerAmount: 0.15,
   },
 
-  // Post-processing - Less sepia for purple horror look
+  // Post-processing - Dramatic horror effects
   postProcessing: {
-    sepiaStrength: 0.2,
+    // Color grading
+    sepiaStrength: 0.15,
+    contrastBoost: 1.2,
+    saturationBoost: 1.3,
+    // Chromatic aberration (RGB split)
+    chromaticStrength: 0.008,
+    chromaticPulseSpeed: 2.0,
+    chromaticPulseAmount: 0.003,
+    // Film grain
     grainSpeed: 15.0,
-    grainAmount: 0.1,
-    vignetteInner: 0.2,
-    vignetteOuter: 0.7,
-    vignetteStrength: 0.6,
+    grainAmount: 0.08,
+    // Vignette (pulsing)
+    vignetteInner: 0.15,
+    vignetteOuter: 0.85,
+    vignetteStrength: 0.8,
+    vignettePulseSpeed: 1.5,
+    vignettePulseAmount: 0.1,
+    // Bloom
+    bloomStrength: 0.4,
+    bloomThreshold: 0.6,
+    // Scan lines
+    scanLineStrength: 0.06,
+    scanLineCount: 400,
+    scanLineSpeed: 0.5,
+    // Radial blur
+    radialBlurStrength: 0.02,
   },
 } as const;
 

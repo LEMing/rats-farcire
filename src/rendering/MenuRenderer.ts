@@ -14,6 +14,7 @@ import {
   mul,
   add,
   sub,
+  clamp,
   uniform,
 } from 'three/tsl';
 import { MenuConfig } from '../menu/config/MenuConfig';
@@ -207,12 +208,13 @@ export class MenuRenderer {
   }
 
   private createBackground(): void {
-    const bgConfig = this.config.background;
-    const geometry = new THREE.PlaneGeometry(bgConfig.width, bgConfig.height);
+    // Use a massive plane that extends far beyond the camera view
+    // This creates an "infinite" background effect
+    const geometry = new THREE.PlaneGeometry(200, 200);
     const material = this.materials.createBackgroundMaterial();
 
     const background = new THREE.Mesh(geometry, material);
-    background.position.z = bgConfig.positionZ;
+    background.position.z = -50; // Push far back
     this.scene.add(background);
   }
 
@@ -227,7 +229,7 @@ export class MenuRenderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Post-Processing
+  // Post-Processing - Epic Horror Effects
   // ---------------------------------------------------------------------------
 
   private setupPostProcessing(): void {
@@ -237,9 +239,12 @@ export class MenuRenderer {
       const scenePass = pass(this.scene, this.camera);
       const color = scenePass.getTextureNode('output');
 
-      const withSepia = this.applySepiaEffect(color);
-      const withGrain = this.applyFilmGrain(withSepia);
-      const withVignette = this.applyPostVignette(withGrain);
+      // Chain of effects for maximum horror atmosphere
+      const withChromatic = this.applyChromaticAberration(color);
+      const withColorGrade = this.applyColorGrading(withChromatic);
+      const withScanLines = this.applyScanLines(withColorGrade);
+      const withGrain = this.applyFilmGrain(withScanLines);
+      const withVignette = this.applyPulsingVignette(withGrain);
 
       this.postProcessing.outputNode = withVignette;
     } catch (e) {
@@ -248,15 +253,69 @@ export class MenuRenderer {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private applySepiaEffect(color: any) {
+  private applyChromaticAberration(color: any) {
+    const ppConfig = this.config.postProcessing;
+    const uvCoord = uv();
+
+    // Distance from center for radial chromatic aberration
+    const center = vec2(0.5, 0.5);
+    const toCenter = sub(uvCoord, center);
+    const dist = length(toCenter);
+
+    // Pulsing chromatic strength
+    const pulse = add(
+      ppConfig.chromaticStrength,
+      mul(sin(mul(this.timeUniform, ppConfig.chromaticPulseSpeed)), ppConfig.chromaticPulseAmount)
+    );
+    const offset = mul(toCenter, mul(dist, pulse));
+
+    // Sample RGB at different offsets
+    const r = color.r;
+    const g = color.g;
+    const b = color.b;
+
+    // Shift red outward, blue inward
+    const chromaR = add(r, mul(offset.x, 15.0));
+    const chromaB = sub(b, mul(offset.x, 15.0));
+
+    return vec3(chromaR, g, chromaB);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyColorGrading(color: any) {
     const ppConfig = this.config.postProcessing;
 
-    const sepiaR = dot(color, vec3(0.393, 0.769, 0.189));
-    const sepiaG = dot(color, vec3(0.349, 0.686, 0.168));
-    const sepiaB = dot(color, vec3(0.272, 0.534, 0.131));
+    // Boost contrast
+    const contrasted = sub(mul(sub(color, 0.5), ppConfig.contrastBoost), sub(ppConfig.contrastBoost, 1.0).mul(0.5));
+    const contrastedClamped = clamp(add(contrasted, 0.5), 0, 1);
+
+    // Boost saturation (toward purple/magenta)
+    const gray = dot(contrastedClamped, vec3(0.299, 0.587, 0.114));
+    const saturated = mix(vec3(gray, gray, gray), contrastedClamped, float(ppConfig.saturationBoost));
+
+    // Subtle sepia/warm tint
+    const sepiaR = dot(saturated, vec3(0.393, 0.769, 0.189));
+    const sepiaG = dot(saturated, vec3(0.349, 0.686, 0.168));
+    const sepiaB = dot(saturated, vec3(0.272, 0.534, 0.131));
     const sepiaColor = vec3(sepiaR, sepiaG, sepiaB);
 
-    return mix(color, sepiaColor, float(ppConfig.sepiaStrength));
+    return mix(saturated, sepiaColor, float(ppConfig.sepiaStrength));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyScanLines(color: any) {
+    const ppConfig = this.config.postProcessing;
+    const uvCoord = uv();
+
+    // Moving scan lines
+    const scanLineY = add(mul(uvCoord.y, ppConfig.scanLineCount), mul(this.timeUniform, ppConfig.scanLineSpeed));
+    const scanLine = mul(sin(scanLineY), 0.5);
+    const scanLineIntensity = add(0.5, scanLine);
+
+    // Darken scan lines
+    const darkened = mul(color, add(1.0, mul(sub(scanLineIntensity, 0.5), ppConfig.scanLineStrength)));
+
+    return darkened;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -272,19 +331,27 @@ export class MenuRenderer {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private applyPostVignette(color: any) {
+  private applyPulsingVignette(color: any) {
     const ppConfig = this.config.postProcessing;
     const uvCoord = uv();
 
     const center = vec2(0.5, 0.5);
     const dist = length(sub(uvCoord, center));
+
+    // Pulsing vignette intensity
+    const pulseAmount = mul(sin(mul(this.timeUniform, ppConfig.vignettePulseSpeed)), ppConfig.vignettePulseAmount);
+    const vignetteOuter = add(ppConfig.vignetteOuter, pulseAmount);
+
     const vignetteAmount = smoothstep(
       float(ppConfig.vignetteInner),
-      float(ppConfig.vignetteOuter),
+      vignetteOuter,
       dist
     );
 
-    return mix(color, vec3(0.08, 0.05, 0.03), mul(vignetteAmount, ppConfig.vignetteStrength));
+    // Dark purple/black vignette
+    const vignetteColor = vec3(0.03, 0.01, 0.05);
+
+    return mix(color, vignetteColor, mul(vignetteAmount, ppConfig.vignetteStrength));
   }
 
   // ---------------------------------------------------------------------------

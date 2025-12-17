@@ -18,6 +18,7 @@ import {
   add,
   sub,
   max,
+  atan2,
 } from 'three/tsl';
 import { MenuConfig } from '../config/MenuConfig';
 
@@ -50,27 +51,89 @@ export class ProceduralMaterials {
   }
 
   /**
-   * Creates the procedural background material with blood splatters and meat chunks
+   * Creates an infinite procedural background with swirling vortex and fog layers
    */
   createBackgroundMaterial(): THREE.MeshBasicNodeMaterial {
     const material = new THREE.MeshBasicNodeMaterial();
     const uvCoord = uv();
+    const config = MenuConfig.background;
+    const t = this.timeUniform as unknown as TSLNode;
 
-    const paperTexture = this.createPaperTexture(uvCoord);
-    const bloodLayer = this.createBloodLayer(uvCoord, paperTexture.noise);
-    const meatLayer = this.createMeatLayer(uvCoord, paperTexture.noise);
+    // Center the UV coordinates (-0.5 to 0.5)
+    const centeredUV = sub(uvCoord, vec2(0.5, 0.5));
 
-    const withBlood = mix(
-      paperTexture.color,
-      bloodLayer.color,
-      clamp(bloodLayer.mask, 0, 1)
+    // Create swirling vortex distortion
+    const dist = length(centeredUV);
+    const angle = atan2(centeredUV.y, centeredUV.x);
+    const swirl = add(angle, mul(mul(dist, config.vortexStrength), sin(mul(t, config.vortexSpeed))));
+    const swirlUV = vec2(
+      add(mul(cos(swirl), dist), 0.5),
+      add(mul(sin(swirl), dist), 0.5)
     );
 
-    const withMeat = mix(withBlood, meatLayer.color, mul(meatLayer.mask, 0.9));
-    const withVignette = this.applyVignette(uvCoord, withMeat);
+    // Base dark purple atmosphere
+    const baseColor = vec3(config.paperColor.r, config.paperColor.g, config.paperColor.b);
 
-    material.colorNode = vec4(withVignette, 1.0);
+    // Layered fog/nebula effect
+    let fogColor: TSLNode = baseColor;
+    for (let i = 0; i < config.fogLayers; i++) {
+      const layerScale = float(2.0 + i * 1.5);
+      const layerSpeed = mul(t, config.fogSpeed * (1 + i * 0.3));
+      const layerUV = add(mul(swirlUV, layerScale), layerSpeed);
+      const noise = this.fbmNoise(layerUV, 4);
+
+      // Purple/magenta fog colors
+      const fogTint = vec3(
+        mul(0.15 + i * 0.05, noise),
+        mul(0.05 + i * 0.02, noise),
+        mul(0.2 + i * 0.08, noise)
+      );
+      fogColor = add(fogColor, mul(fogTint, float(0.3 / (i + 1))));
+    }
+
+    // Add radial glow from center (where meatball is)
+    const centerGlow = smoothstep(float(0.8), float(0.0), dist);
+    const glowColor = vec3(0.25, 0.08, 0.3); // Purple glow
+    fogColor = add(fogColor, mul(glowColor, mul(centerGlow, 0.4)));
+
+    // Pulsing brightness
+    const pulse = add(1.0, mul(sin(mul(t, config.pulseSpeed)), config.pulseIntensity));
+    fogColor = mul(fogColor, pulse);
+
+    // Blood splatters
+    const bloodLayer = this.createBloodLayer(uvCoord, this.valueNoise(mul(uvCoord, float(config.noiseScale))));
+    fogColor = mix(fogColor, bloodLayer.color, clamp(mul(bloodLayer.mask, 0.8), 0, 1));
+
+    // Meat chunks
+    const meatLayer = this.createMeatLayer(uvCoord, this.valueNoise(mul(uvCoord, float(config.noiseScale))));
+    fogColor = mix(fogColor, meatLayer.color, mul(meatLayer.mask, 0.9));
+
+    // Dark vignette edges (very dark at edges to hide any boundaries)
+    const vignette = smoothstep(float(0.3), float(0.9), dist);
+    const vignetteColor = vec3(0.02, 0.01, 0.03);
+    fogColor = mix(fogColor, vignetteColor, mul(vignette, 0.95));
+
+    material.colorNode = vec4(fogColor, 1.0);
     return material;
+  }
+
+  /**
+   * Fractal Brownian Motion noise for organic fog effect
+   */
+  private fbmNoise(uvCoord: TSLNode, octaves: number): TSLNode {
+    let value: TSLNode = float(0);
+
+    // Unrolled FBM for TSL compatibility
+    const amplitudes = [0.5, 0.25, 0.125, 0.0625];
+    const frequencies = [1.0, 2.0, 4.0, 8.0];
+
+    for (let i = 0; i < Math.min(octaves, 4); i++) {
+      const noiseUV = mul(uvCoord, frequencies[i]);
+      const noise = this.valueNoise(noiseUV);
+      value = add(value, mul(noise, amplitudes[i]));
+    }
+
+    return value;
   }
 
   /**
@@ -105,19 +168,6 @@ export class ProceduralMaterials {
   // ---------------------------------------------------------------------------
   // Private helper methods
   // ---------------------------------------------------------------------------
-
-  private createPaperTexture(uvCoord: TSLNode) {
-    const config = MenuConfig.background;
-    const paperColor = vec3(config.paperColor.r, config.paperColor.g, config.paperColor.b);
-
-    const noiseScale = float(config.noiseScale);
-    const noiseUV = mul(uvCoord, noiseScale);
-    const noise = this.valueNoise(noiseUV);
-
-    const stainedPaper = add(paperColor, mul(sub(noise, 0.5), 0.08));
-
-    return { color: stainedPaper, noise };
-  }
 
   private createBloodLayer(uvCoord: TSLNode, noise: TSLNode) {
     const splatters = MenuConfig.bloodSplatters;
@@ -175,19 +225,6 @@ export class ProceduralMaterials {
     const meatCenter = vec2(animX, animY);
     const distToMeat = length(sub(uvCoord, meatCenter));
     return smoothstep(float(chunk.size), float(chunk.size * 0.2), distToMeat);
-  }
-
-  private applyVignette(uvCoord: TSLNode, color: TSLNode): TSLNode {
-    const vignetteColor = MenuConfig.colors.vignette;
-    const center = vec2(0.5, 0.5);
-    const dist = length(sub(uvCoord, center));
-    const vignetteAmount = smoothstep(float(0.2), float(0.8), dist);
-
-    return mix(
-      color,
-      vec3(vignetteColor.r, vignetteColor.g, vignetteColor.b),
-      mul(vignetteAmount, 0.7)
-    );
   }
 
   private valueNoise(noiseUV: TSLNode): TSLNode {
