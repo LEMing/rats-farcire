@@ -123,13 +123,20 @@ export class MenuRenderer {
   }
 
   private initializeRenderer(): void {
+    // Create canvas manually to ensure proper initialization
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    this.container.appendChild(canvas);
+
     this.renderer = new THREE.WebGPURenderer({
+      canvas,
       antialias: true,
-      forceWebGL: true, // Force WebGL backend for better compatibility
+      // Let it try WebGPU first, fallback to WebGL automatically
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.container.appendChild(this.renderer.domElement);
   }
 
   private initializeFactories(): void {

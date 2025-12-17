@@ -92,18 +92,21 @@ export class Renderer {
     if (this.initialized) return;
 
     try {
-      // Create WebGPU renderer (forces WebGL for better compatibility)
+      // Create canvas manually to ensure proper initialization
+      const canvas = document.createElement('canvas');
+      canvas.style.display = 'block';
+      this.container.appendChild(canvas);
+
+      // Create WebGPU renderer (tries WebGPU first, falls back to WebGL)
       this.renderer = new THREE.WebGPURenderer({
+        canvas,
         antialias: true,
-        forceWebGL: true,
       });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.setSize(window.innerWidth, window.innerHeight);
 
       // Initialize WebGPU (falls back to WebGL2 if unavailable)
       await this.renderer.init();
-
-      this.container.appendChild(this.renderer.domElement);
 
       // Initialize post-processing with TSL
       this.initPostProcessing();
