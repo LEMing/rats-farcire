@@ -7,40 +7,62 @@ import { UIManager } from '../ui/UIManager';
 import { LocalGameLoop } from './LocalGameLoop';
 import type { MapData, InputState } from '@shared/types';
 import { TICK_RATE, MAP_WIDTH, MAP_HEIGHT } from '@shared/constants';
+import type { IRenderer, IInputManager, IUIManager, IGameLoop, GameConfig } from './interfaces';
 
 // ============================================================================
 // Main Game Controller
+// Supports dependency injection for testing while providing sensible defaults
 // ============================================================================
 
+/**
+ * Dependencies that can be injected for testing
+ */
+export interface GameDependencies {
+  renderer?: IRenderer;
+  input?: IInputManager;
+  ui?: IUIManager;
+  container?: HTMLElement;
+}
+
 export class Game {
-  private renderer: Renderer;
-  private input: InputManager;
+  private renderer: IRenderer;
+  private input: IInputManager;
   private entities: EntityManager;
-  private ui: UIManager;
+  private ui: IUIManager;
   private network: NetworkClient | null = null;
-  private localLoop: LocalGameLoop | null = null;
+  private localLoop: IGameLoop | null = null;
 
   private mapData: MapData | null = null;
   private isMultiplayer = false;
   private isRunning = false;
   private lastTime = 0;
   private accumulator = 0;
-  private readonly tickInterval = 1000 / TICK_RATE;
+  private readonly tickInterval: number;
 
   // Hitstop system
   private hitstopTimer = 0;
-  private readonly HITSTOP_DURATION = 8; // ms - subtle punch, not annoying with shotgun
+  private readonly hitstopDuration: number;
 
   // Game time for effects
   private gameTime = 0;
 
-  constructor() {
-    const container = document.getElementById('game-container')!;
+  /**
+   * Create a new Game instance
+   * @param deps Optional dependencies for testing/customization
+   * @param config Optional configuration overrides
+   */
+  constructor(deps: GameDependencies = {}, config: GameConfig = {}) {
+    const container = deps.container ?? document.getElementById('game-container')!;
 
-    this.renderer = new Renderer(container);
-    this.input = new InputManager(container);
-    this.entities = new EntityManager(this.renderer);
-    this.ui = new UIManager();
+    // Use injected dependencies or create defaults
+    this.renderer = deps.renderer ?? new Renderer(container);
+    this.input = deps.input ?? new InputManager(container);
+    this.ui = deps.ui ?? new UIManager();
+    this.entities = new EntityManager(this.renderer as Renderer);
+
+    // Apply configuration with defaults
+    this.tickInterval = 1000 / (config.tickRate ?? TICK_RATE);
+    this.hitstopDuration = config.hitstopDuration ?? 8; // ms - subtle punch
 
     // Initial resize
     this.resize();
@@ -65,11 +87,17 @@ export class Game {
     this.mapData = generator.generate();
 
     // Create local game loop with renderer for effects
-    this.localLoop = new LocalGameLoop(this.mapData, this.entities, this.ui, this.renderer);
+    // Note: LocalGameLoop still requires concrete types until fully refactored
+    this.localLoop = new LocalGameLoop(
+      this.mapData,
+      this.entities,
+      this.ui as UIManager,
+      this.renderer as Renderer
+    );
 
     // Set up hitstop callback
     this.localLoop.onHitstop = () => {
-      this.hitstopTimer = this.HITSTOP_DURATION;
+      this.hitstopTimer = this.hitstopDuration;
     };
 
     // Set up death callback
