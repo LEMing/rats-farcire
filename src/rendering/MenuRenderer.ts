@@ -66,14 +66,8 @@ export class MenuRenderer {
       console.log('Menu renderer initialized');
     } catch (e) {
       console.warn('Menu renderer initialization failed, skipping animated background:', e);
-      // Clean up any partial initialization - safely remove canvas
-      try {
-        if (this.renderer?.domElement && this.container.contains(this.renderer.domElement)) {
-          this.container.removeChild(this.renderer.domElement);
-        }
-      } catch {
-        // Ignore cleanup errors
-      }
+      // Clean up any partial initialization
+      this.cleanupRenderer();
       this.initialized = false;
     }
   }
@@ -98,14 +92,25 @@ export class MenuRenderer {
 
   dispose(): void {
     this.stop();
-
-    // Safely remove canvas if it's in the container
-    if (this.renderer?.domElement && this.container.contains(this.renderer.domElement)) {
-      this.container.removeChild(this.renderer.domElement);
-    }
-
     this.disposeFloatingMeatballs();
     this.scene?.clear();
+    this.cleanupRenderer();
+  }
+
+  private cleanupRenderer(): void {
+    // Remove canvas from DOM first (this is safe)
+    try {
+      if (this.canvas && this.container.contains(this.canvas)) {
+        this.container.removeChild(this.canvas);
+      }
+    } catch {
+      // Ignore removal errors
+    }
+    this.canvas = null;
+
+    // Clear renderer reference (don't call dispose on failed init)
+    // @ts-expect-error - clearing internal reference
+    this.renderer = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -128,16 +133,21 @@ export class MenuRenderer {
     this.camera.lookAt(0, 0, 0);
   }
 
+  private canvas: HTMLCanvasElement | null = null;
+
   private initializeRenderer(): void {
     // Create canvas manually to ensure proper initialization
-    const canvas = document.createElement('canvas');
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    canvas.style.display = 'block';
-    this.container.appendChild(canvas);
+    this.canvas = document.createElement('canvas');
+    // Set explicit dimensions BEFORE appending (required for WebGL context)
+    this.canvas.width = window.innerWidth;
+    this.canvas.height = window.innerHeight;
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+    this.canvas.style.display = 'block';
+    this.container.appendChild(this.canvas);
 
     this.renderer = new THREE.WebGPURenderer({
-      canvas,
+      canvas: this.canvas,
       antialias: true,
       // Let it try WebGPU first, fallback to WebGL automatically
     });

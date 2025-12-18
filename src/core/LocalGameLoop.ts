@@ -633,8 +633,14 @@ export class LocalGameLoop {
       enemy.position.x = newX;
       enemy.position.z = newZ;
 
-      // Face player
-      enemy.rotation = angleBetween(enemyPos, playerPos);
+      // Face movement direction (or player when attacking)
+      if (dist < config.attackRange * 1.5) {
+        // Close to player - face them for attack
+        enemy.rotation = angleBetween(enemyPos, playerPos);
+      } else if (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.y) > 0.01) {
+        // Face movement direction
+        enemy.rotation = Math.atan2(moveDir.x, moveDir.y);
+      }
 
       // Attack if in range
       if (dist < config.attackRange) {

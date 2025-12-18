@@ -191,6 +191,9 @@ export class Game {
     // Update torch flickering
     this.renderer.updateTorches(this.gameTime);
 
+    // Update TARDIS effects
+    this.renderer.updateTardis(0.016);
+
     // Update crosshair position
     this.ui.updateCrosshair(this.input.mouseX, this.input.mouseY);
 

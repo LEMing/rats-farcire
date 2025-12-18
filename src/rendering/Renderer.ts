@@ -1,10 +1,26 @@
 import * as THREE from 'three/webgpu';
-import { pass, uniform } from 'three/tsl';
+import {
+  pass,
+  uniform,
+  uv,
+  vec2,
+  vec3,
+  float,
+  sin,
+  mix,
+  smoothstep,
+  length,
+  mul,
+  add,
+  sub,
+} from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import type { MapData, Vec3, EnemyType } from '@shared/types';
 import { TILE_SIZE, COLORS, BLOOD_COLORS } from '@shared/constants';
 import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 import { TargetingLaserMaterial } from './LaserMaterial';
+import { TardisFactory, TardisInstance } from './TardisFactory';
+import { MapDecorations } from './MapDecorations';
 
 // ============================================================================
 // Particle for death effects (GPU-instanced)
@@ -67,11 +83,16 @@ export class Renderer {
   private bloodDecals: THREE.Mesh[] = [];
   private readonly MAX_BLOOD_DECALS = 100;
 
+  // TARDIS instance
+  private tardis: TardisInstance | null = null;
+  private isWaveTransition = false;
+
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
   private time = 0;
 
   private container: HTMLElement;
+  private canvas: HTMLCanvasElement | null = null;
   private initialized = false;
 
   constructor(container: HTMLElement) {
@@ -110,13 +131,16 @@ export class Renderer {
 
     try {
       // Create canvas manually to ensure proper initialization
-      const canvas = document.createElement('canvas');
-      canvas.style.display = 'block';
-      this.container.appendChild(canvas);
+      this.canvas = document.createElement('canvas');
+      // Set explicit dimensions BEFORE creating renderer (required for WebGL context)
+      this.canvas.width = window.innerWidth;
+      this.canvas.height = window.innerHeight;
+      this.canvas.style.display = 'block';
+      this.container.appendChild(this.canvas);
 
       // Create WebGPU renderer (tries WebGPU first, falls back to WebGL)
       this.renderer = new THREE.WebGPURenderer({
-        canvas,
+        canvas: this.canvas,
         antialias: true,
       });
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -135,8 +159,21 @@ export class Renderer {
       console.log('WebGPU Renderer initialized');
     } catch (e) {
       console.error('Renderer initialization failed:', e);
+      this.cleanupRenderer();
       throw new Error('Failed to initialize WebGPU/WebGL renderer. Please use a modern browser with WebGPU or WebGL2 support.');
     }
+  }
+
+  private cleanupRenderer(): void {
+    // Remove canvas from DOM first (this is safe)
+    try {
+      if (this.canvas && this.container.contains(this.canvas)) {
+        this.container.removeChild(this.canvas);
+      }
+    } catch {
+      // Ignore removal errors
+    }
+    this.canvas = null;
   }
 
   private initPostProcessing(): void {
@@ -146,19 +183,63 @@ export class Renderer {
 
       // Scene pass
       const scenePass = pass(this.scene, this.camera);
-      const scenePassColor = scenePass.getTextureNode('output');
 
-      // Apply bloom effect to scene
-      const bloomPass = bloom(scenePassColor, 0.5, 0.3, 0.9);
+      // 1. Chromatic aberration - that action movie lens feel
+      const withChromatic = this.applyChromaticAberration(scenePass);
 
-      // Combine original with bloom
-      this.postProcessing.outputNode = scenePassColor.add(bloomPass);
+      // 2. Bloom - makes fire, muzzle flashes, and projectiles pop
+      const bloomPass = bloom(withChromatic, 0.5, 0.4, 0.6);
+      const withBloom = withChromatic.add(bloomPass);
 
-      console.log('TSL Post-processing initialized');
+      // 3. Subtle vignette - just enough to frame the action
+      const withVignette = this.applyVignette(withBloom);
+
+      this.postProcessing.outputNode = withVignette;
+
+      console.log('Post-processing initialized');
     } catch (e) {
       console.warn('Post-processing setup failed, using standard rendering:', e);
       this.usePostProcessing = false;
     }
+  }
+
+  // Chromatic aberration - resamples texture at offset UVs for RGB split
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyChromaticAberration(scenePass: any) {
+    const uvCoord = uv();
+
+    // Radial from center - stronger at edges
+    const center = vec2(0.5, 0.5);
+    const toCenter = sub(uvCoord, center);
+    const dist = length(toCenter);
+
+    // Aberration strength with subtle pulse
+    const strength = add(0.012, mul(sin(mul(this.timeUniform, 1.5)), 0.002));
+    const aberrationOffset = mul(toCenter, mul(dist, strength));
+
+    // Sample RGB at different UVs
+    const uvRed = add(uvCoord, aberrationOffset);
+    const uvBlue = sub(uvCoord, aberrationOffset);
+
+    const redSample = scenePass.getTextureNode('output').uv(uvRed);
+    const greenSample = scenePass.getTextureNode('output');
+    const blueSample = scenePass.getTextureNode('output').uv(uvBlue);
+
+    return vec3(redSample.x, greenSample.y, blueSample.z);
+  }
+
+  // Light vignette - frames the action without obscuring
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyVignette(color: any) {
+    const uvCoord = uv();
+    const center = vec2(0.5, 0.5);
+    const dist = length(sub(uvCoord, center));
+
+    // Soft falloff, only darkens the very edges
+    const vignette = smoothstep(float(0.4), float(0.9), dist);
+
+    // Darken edges slightly - keeps gameplay area fully visible
+    return mix(color, mul(color, 0.3), mul(vignette, 0.5));
   }
 
   private setupIsometricCamera(): void {
@@ -398,6 +479,161 @@ export class Renderer {
     for (const pos of mapData.altarPositions) {
       this.createAltar(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
     }
+
+    // Create TARDIS at player spawn point
+    if (mapData.spawnPoints.length > 0) {
+      const spawn = mapData.spawnPoints[0];
+      this.spawnTardis(spawn.x * TILE_SIZE, spawn.y * TILE_SIZE);
+    }
+
+    // Add environmental decorations
+    this.placeDecorations(mapData);
+  }
+
+  private placeDecorations(mapData: MapData): void {
+    const spawnRoom = mapData.rooms[0];
+
+    // Place meat grinder in a larger room (not spawn room)
+    for (let i = 1; i < mapData.rooms.length; i++) {
+      const room = mapData.rooms[i];
+      if (room.width >= 6 && room.height >= 6 && Math.random() < 0.4) {
+        const centerX = (room.x + room.width / 2) * TILE_SIZE;
+        const centerZ = (room.y + room.height / 2) * TILE_SIZE;
+        const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
+        this.scene.add(grinder);
+        break; // Only one grinder per map
+      }
+    }
+
+    // Place ritual circles near altars
+    for (const altar of mapData.altarPositions) {
+      if (Math.random() < 0.5) {
+        const circle = MapDecorations.createRitualCircle(
+          altar.x * TILE_SIZE,
+          altar.y * TILE_SIZE
+        );
+        // Offset slightly so it's around the altar
+        circle.position.x += (Math.random() - 0.5) * 2;
+        circle.position.z += (Math.random() - 0.5) * 2;
+        this.scene.add(circle);
+      }
+    }
+
+    // Scatter decorations across floor tiles
+    for (let y = 0; y < mapData.height; y++) {
+      for (let x = 0; x < mapData.width; x++) {
+        const tile = mapData.tiles[y][x];
+        if (tile.type !== 'floor') continue;
+
+        // Skip spawn room for most decorations
+        const inSpawnRoom = spawnRoom &&
+          x >= spawnRoom.x && x < spawnRoom.x + spawnRoom.width &&
+          y >= spawnRoom.y && y < spawnRoom.y + spawnRoom.height;
+
+        const worldX = x * TILE_SIZE;
+        const worldZ = y * TILE_SIZE;
+
+        // Meat piles (more common near altars)
+        const nearAltar = mapData.altarPositions.some(
+          a => Math.abs(a.x - x) < 4 && Math.abs(a.y - y) < 4
+        );
+        if (Math.random() < (nearAltar ? 0.08 : 0.02)) {
+          const pile = MapDecorations.createMeatPile(
+            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.6,
+            0,
+            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.6
+          );
+          this.scene.add(pile);
+        }
+
+        // Bone piles (scattered)
+        if (!inSpawnRoom && Math.random() < 0.015) {
+          const bones = MapDecorations.createBonePile(
+            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.5,
+            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.5
+          );
+          this.scene.add(bones);
+        }
+
+        // Crates and barrels (in corners and edges)
+        if (!inSpawnRoom && Math.random() < 0.02) {
+          if (Math.random() > 0.5) {
+            const crate = MapDecorations.createCrate(worldX, worldZ);
+            this.scene.add(crate);
+          } else {
+            const tipped = Math.random() < 0.3;
+            const barrel = MapDecorations.createBarrel(worldX, worldZ, tipped);
+            this.scene.add(barrel);
+          }
+        }
+
+        // Rat holes on walls adjacent to floor
+        if (!inSpawnRoom && Math.random() < 0.03) {
+          // Check adjacent walls
+          const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
+          const hasWallLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'wall';
+          const hasWallDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall';
+          const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
+
+          if (hasWallRight) {
+            const hole = MapDecorations.createRatHole(worldX + TILE_SIZE, worldZ, 'x', -1);
+            this.scene.add(hole);
+          } else if (hasWallLeft) {
+            const hole = MapDecorations.createRatHole(worldX - TILE_SIZE, worldZ, 'x', 1);
+            this.scene.add(hole);
+          } else if (hasWallDown) {
+            const hole = MapDecorations.createRatHole(worldX, worldZ + TILE_SIZE, 'z', -1);
+            this.scene.add(hole);
+          } else if (hasWallUp) {
+            const hole = MapDecorations.createRatHole(worldX, worldZ - TILE_SIZE, 'z', 1);
+            this.scene.add(hole);
+          }
+        }
+      }
+    }
+  }
+
+  // ============================================================================
+  // TARDIS System
+  // ============================================================================
+
+  private spawnTardis(x: number, z: number): void {
+    // Remove existing TARDIS if any
+    if (this.tardis) {
+      this.scene.remove(this.tardis.group);
+    }
+
+    // Create new TARDIS at spawn position
+    const position = new THREE.Vector3(x, 0, z);
+    this.tardis = TardisFactory.create(position);
+    this.tardis.group.userData.mapObject = true;
+
+    // Start with materialization effect
+    TardisFactory.startMaterialization(this.tardis);
+
+    this.scene.add(this.tardis.group);
+  }
+
+  updateTardis(dt: number): void {
+    if (!this.tardis) return;
+
+    // Update materialization effect
+    if (this.tardis.materializing) {
+      TardisFactory.updateMaterialization(this.tardis, dt);
+    }
+
+    // Update lamp pulsing
+    TardisFactory.updateLampPulse(this.tardis, this.time, this.isWaveTransition);
+  }
+
+  setWaveTransition(active: boolean): void {
+    this.isWaveTransition = active;
+  }
+
+  getTardisPosition(): Vec3 | null {
+    if (!this.tardis) return null;
+    const pos = this.tardis.group.position;
+    return { x: pos.x, y: pos.y, z: pos.z };
   }
 
   updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {
