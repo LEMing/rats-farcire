@@ -165,6 +165,8 @@ export class UIManager {
       gap: 8px;
       pointer-events: none;
       z-index: 30;
+      opacity: 0;
+      transition: opacity 0.3s;
     `;
     container.innerHTML = `
       <div style="
@@ -366,8 +368,11 @@ export class UIManager {
   }
 
   private updateObjectiveDisplay(cellsDelivered?: number, cellsRequired?: number, carryingCell?: boolean): void {
-    // Update cell indicators
+    // Show objective display when game data is available
     if (cellsDelivered !== undefined && cellsRequired !== undefined) {
+      this.elements.objectiveDisplay.style.opacity = '1';
+
+      // Update cell indicators
       const indicators = this.elements.objectiveDisplay.querySelectorAll('.cell-indicator');
       indicators.forEach((indicator, index) => {
         const el = indicator as HTMLElement;
@@ -381,6 +386,9 @@ export class UIManager {
           el.style.boxShadow = 'none';
         }
       });
+    } else {
+      // Hide when no game data (e.g., main menu)
+      this.elements.objectiveDisplay.style.opacity = '0';
     }
 
     // Carrying indicator
