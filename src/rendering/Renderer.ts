@@ -259,60 +259,12 @@ export class Renderer {
     this.scene.add(fill);
   }
 
-  /**
-   * Create wall geometry with only faces visible from isometric camera.
-   * Camera looks from +X +Z direction, so we render: top, right (+X), front (+Z) faces.
-   * This eliminates transparency artifacts from overlapping internal faces.
-   */
-  private createIsometricWallGeometry(): THREE.BufferGeometry {
-    const s = TILE_SIZE / 2; // half size
-    const h = TILE_SIZE;     // full height
-
-    // Vertices for 3 faces (top, right, front)
-    // Each face needs 4 vertices, 2 triangles
-    const vertices = new Float32Array([
-      // Top face (y = h/2) - looking down
-      -s, h/2, -s,   s, h/2, -s,   s, h/2, s,
-      -s, h/2, -s,   s, h/2, s,   -s, h/2, s,
-
-      // Right face (x = s) - facing +X
-      s, -h/2, -s,   s, h/2, -s,   s, h/2, s,
-      s, -h/2, -s,   s, h/2, s,    s, -h/2, s,
-
-      // Front face (z = s) - facing +Z
-      -s, -h/2, s,   s, -h/2, s,   s, h/2, s,
-      -s, -h/2, s,   s, h/2, s,   -s, h/2, s,
-    ]);
-
-    // Normals for each face
-    const normals = new Float32Array([
-      // Top face - pointing up
-      0, 1, 0,   0, 1, 0,   0, 1, 0,
-      0, 1, 0,   0, 1, 0,   0, 1, 0,
-
-      // Right face - pointing +X
-      1, 0, 0,   1, 0, 0,   1, 0, 0,
-      1, 0, 0,   1, 0, 0,   1, 0, 0,
-
-      // Front face - pointing +Z
-      0, 0, 1,   0, 0, 1,   0, 0, 1,
-      0, 0, 1,   0, 0, 1,   0, 0, 1,
-    ]);
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-
-    return geometry;
-  }
-
   private cacheGeometries(): void {
     // Floor tile
     this.geometries.set('floor', new THREE.BoxGeometry(TILE_SIZE, 0.1, TILE_SIZE));
 
-    // Wall - custom geometry with only visible faces from isometric camera
-    // Camera looks from +X +Z, so we only need: top, right (+X), and front (+Z) faces
-    this.geometries.set('wall', this.createIsometricWallGeometry());
+    // Wall - full box geometry
+    this.geometries.set('wall', new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE));
 
     // Player body
     this.geometries.set('playerBody', new THREE.CylinderGeometry(0.4, 0.5, 1, 8));

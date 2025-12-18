@@ -127,38 +127,26 @@ export class MapRenderer {
             this.addFloorSymbol(worldX, worldZ);
           }
         } else if (tile.type === 'wall') {
-          // Check if this wall is on the "front edge" - has floor behind it from camera's POV
-          // Camera looks from +X +Z, so "behind" is -X or -Z direction
-          const hasFloorBehindX = x > 0 && mapData.tiles[y][x - 1]?.type === 'floor';
-          const hasFloorBehindZ = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'floor';
-          const isFrontEdgeWall = hasFloorBehindX || hasFloorBehindZ;
+          // Create individual wall mesh with its own material for opacity animation
+          const wallMat = wallBaseMat.clone();
+          wallMat.transparent = true;
+          wallMat.opacity = this.WALL_OPACITY_MAX;
 
-          // Front edge walls are completely transparent (invisible)
-          if (isFrontEdgeWall) {
-            // Skip rendering this wall entirely - it would block camera view
-            // But still need to track position for game logic if needed
-          } else {
-            // Create individual wall mesh with its own material for opacity animation
-            const wallMat = wallBaseMat.clone();
-            wallMat.transparent = true;
-            wallMat.opacity = this.WALL_OPACITY_MAX;
+          const wallMesh = new THREE.Mesh(wallGeom, wallMat);
+          wallMesh.position.set(worldX, TILE_SIZE / 2, worldZ);
+          wallMesh.castShadow = true;
+          wallMesh.receiveShadow = true;
+          wallMesh.userData.mapObject = true;
+          this.deps.scene.add(wallMesh);
 
-            const wallMesh = new THREE.Mesh(wallGeom, wallMat);
-            wallMesh.position.set(worldX, TILE_SIZE / 2, worldZ);
-            wallMesh.castShadow = true;
-            wallMesh.receiveShadow = true;
-            wallMesh.userData.mapObject = true;
-            this.deps.scene.add(wallMesh);
-
-            // Store wall data for smooth opacity fading
-            this.walls.push({
-              mesh: wallMesh,
-              worldX,
-              worldZ,
-              currentOpacity: this.WALL_OPACITY_MAX,
-              targetOpacity: this.WALL_OPACITY_MAX,
-            });
-          }
+          // Store wall data for smooth opacity fading
+          this.walls.push({
+            mesh: wallMesh,
+            worldX,
+            worldZ,
+            currentOpacity: this.WALL_OPACITY_MAX,
+            targetOpacity: this.WALL_OPACITY_MAX,
+          });
 
           // Maybe add torch on walls adjacent to floor
           if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
