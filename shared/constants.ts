@@ -23,6 +23,9 @@ export const PLAYER_START_AMMO = 50; // more starting ammo
 export const PLAYER_MAX_AMMO = 150;
 export const PLAYER_HITBOX_RADIUS = 0.35;
 
+// Wall collision buffer - keeps entities visible (larger than hitbox for camera visibility)
+export const WALL_COLLISION_BUFFER = 0.7;
+
 // Shooting - shotgun style
 export const SHOOT_COOLDOWN = 200; // ms - fast responsive shooting
 export const PROJECTILE_SPEED = 25; // units per second
