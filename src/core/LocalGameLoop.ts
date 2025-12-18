@@ -169,7 +169,7 @@ export class LocalGameLoop {
 
     // Update objective system (power cells, delivery)
     const playerPos = { x: this.player.position.x, y: this.player.position.z };
-    this.objectiveSystem.update(playerPos, input.interact);
+    this.objectiveSystem.update(playerPos, input.interact, dt);
 
     // Sync carrying state to player (for speed modifier)
     this.player.carryingCellId = this.objectiveSystem.getCarriedCellId();

@@ -39,6 +39,10 @@ export class ObjectiveSystem {
   // TARDIS position (world coordinates)
   private tardisWorldPos: Vec2 | null = null;
 
+  // Pickup cooldown after dropping (prevents immediate re-pickup)
+  private pickupCooldown = 0;
+  private readonly PICKUP_COOLDOWN_DURATION = 500; // ms
+
   // Callbacks
   private readonly callbacks: ObjectiveCallbacks;
 
@@ -65,10 +69,15 @@ export class ObjectiveSystem {
    * Update objective system - call every game tick
    * @param playerPos Player position in world coordinates
    * @param interactPressed Whether interact key was pressed this frame
-   * @returns true if player should auto-drop cell (e.g., for shooting)
+   * @param dt Delta time in milliseconds
    */
-  update(playerPos: Vec2, interactPressed: boolean): void {
+  update(playerPos: Vec2, interactPressed: boolean, dt: number = 16): void {
     if (this.isComplete) return;
+
+    // Update pickup cooldown
+    if (this.pickupCooldown > 0) {
+      this.pickupCooldown -= dt;
+    }
 
     // Handle cell drop (interact key while carrying)
     if (interactPressed && this.carriedCellId) {
@@ -82,8 +91,10 @@ export class ObjectiveSystem {
       return;
     }
 
-    // Not carrying - check for cell pickup
-    this.checkPickup(playerPos);
+    // Not carrying - check for cell pickup (respecting cooldown)
+    if (this.pickupCooldown <= 0) {
+      this.checkPickup(playerPos);
+    }
   }
 
   /**
@@ -201,6 +212,9 @@ export class ObjectiveSystem {
 
     const droppedCellId = this.carriedCellId;
     this.carriedCellId = null;
+
+    // Start pickup cooldown to prevent immediate re-pickup
+    this.pickupCooldown = this.PICKUP_COOLDOWN_DURATION;
 
     this.callbacks.onCellDrop(droppedCellId, dropPosition);
   }
