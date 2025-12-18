@@ -12,23 +12,24 @@
 | Metric | Value | Status |
 |--------|-------|--------|
 | Largest files | 4 files > 800 lines | Warning |
-| Test coverage | 0% (no tests) | Critical |
+| Test coverage | 45 tests (systems/ covered) | Improved |
 | `any` type usage | 21 occurrences | Warning |
 | Console statements | 20 | Warning |
 | ESLint disables | 7 | Warning |
 | TODO comments | 0 found | Good |
+| EventBus | Type-safe, 14 event types | Good |
 
 ### Critical Tech Debt
 
-#### 1. No Test Coverage
+#### 1. ~~No Test Coverage~~ - ADDRESSED
 
-**Risk:** HIGH
-**Impact:** Refactoring is risky, bugs ship to production
+**Risk:** ~~HIGH~~ MEDIUM (improved)
+**Impact:** Core systems now have test coverage
 
-- Zero unit tests
-- No integration tests
-- No e2e tests
-- Makes refactoring dangerous
+- [x] 45 unit tests added (WaveManager, ObjectiveSystem, EventBus)
+- [ ] No integration tests
+- [ ] No e2e tests
+- Refactoring core systems is now safer
 
 #### 2. God Classes Remain
 
@@ -240,16 +241,20 @@ Better:   Game → GameLogic → EventBus → Renderer
 
 ## Prioritized Action Plan
 
-### Phase 1: Foundation (Immediate)
+### Phase 1: Foundation (Immediate) - COMPLETED
 
-1. **Add Testing Infrastructure**
-   - Set up Vitest
-   - Write tests for `WaveManager`, `ObjectiveSystem` (already clean)
-   - Target: 50% coverage on systems/
+1. **Add Testing Infrastructure** - DONE
+   - [x] Set up Vitest with coverage configuration
+   - [x] Write tests for `WaveManager` (11 tests)
+   - [x] Write tests for `ObjectiveSystem` (15 tests)
+   - [x] Write tests for `EventBus` (19 tests)
+   - Total: 45 passing tests
 
-2. **Create EventBus**
-   - Simple pub/sub for game events
-   - Decouple LocalGameLoop from Renderer
+2. **Create EventBus** - DONE
+   - [x] Type-safe pub/sub system (`src/core/EventBus.ts`)
+   - [x] Defined all game events with typed payloads
+   - [x] Integrated into LocalGameLoop (emitting events alongside direct calls)
+   - Events: screenShake, bloodBurst, hitStop, enemyHit, enemyKilled, playerHit, playerDied, cellPickedUp, cellDropped, cellDelivered, objectiveComplete, waveStarted, waveCompleted, gameOver
 
 ### Phase 2: Refactor God Classes
 

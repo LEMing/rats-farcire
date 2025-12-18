@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "server": "tsx watch server/index.ts",
-    "dev:all": "concurrently \"npm run dev\" \"npm run server\""
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "three": "^0.182.0",
@@ -20,9 +23,11 @@
     "@types/three": "^0.182.0",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
+    "@vitest/coverage-v8": "^4.0.16",
     "concurrently": "^8.2.2",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
-    "vite": "^5.0.10"
+    "vite": "^5.0.10",
+    "vitest": "^4.0.16"
   }
 }

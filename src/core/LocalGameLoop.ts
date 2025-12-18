@@ -52,6 +52,7 @@ import { EntityManager } from '../ecs/EntityManager';
 import { UIManager } from '../ui/UIManager';
 import { EnemyAI } from '../ai/EnemyAI';
 import { Renderer } from '../rendering/Renderer';
+import { EventBus, getEventBus } from './EventBus';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -63,6 +64,7 @@ export class LocalGameLoop {
   private ui: UIManager;
   private ai: EnemyAI;
   private renderer: Renderer;
+  private eventBus: EventBus;
 
   private player: PlayerState | null = null;
   private enemies: Map<string, EnemyState> = new Map();
@@ -96,12 +98,19 @@ export class LocalGameLoop {
     this.ui = ui;
     this.renderer = renderer;
     this.ai = new EnemyAI(mapData);
+    this.eventBus = getEventBus();
 
     // Initialize wave manager with callbacks
     this.waveManager = new WaveManager(mapData, {
       onSpawnEnemy: (request) => this.handleSpawnEnemy(request),
-      onWaveStart: (wave, count) => console.log(`Wave ${wave} started! Enemies: ${count}`),
-      onWaveComplete: (wave) => console.log(`Wave ${wave} complete!`),
+      onWaveStart: (wave, count) => {
+        console.log(`Wave ${wave} started! Enemies: ${count}`);
+        this.eventBus.emit('waveStarted', { waveNumber: wave, enemyCount: count });
+      },
+      onWaveComplete: (wave) => {
+        console.log(`Wave ${wave} complete!`);
+        this.eventBus.emit('waveCompleted', { waveNumber: wave });
+      },
     });
 
     // Initialize objective system with callbacks
@@ -322,6 +331,7 @@ export class LocalGameLoop {
 
     // Screen shake for shotgun kick
     this.renderer.addScreenShake(0.15);
+    this.eventBus.emit('screenShake', { intensity: 0.15 });
 
     const baseAngle = this.player.rotation;
 
@@ -432,8 +442,21 @@ export class LocalGameLoop {
 
           // Blood burst on hit (minimal particles to avoid lag)
           this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 2);
+          this.eventBus.emit('bloodBurst', {
+            position: { ...enemy.position },
+            enemyType: enemy.enemyType,
+            intensity: 2,
+          });
+
+          // Emit enemy hit event
+          this.eventBus.emit('enemyHit', {
+            position: { ...enemy.position },
+            enemyType: enemy.enemyType,
+            damage: proj.damage,
+          });
 
           // Trigger hitstop
+          this.eventBus.emit('hitStop', { duration: 8 });
           if (this.onHitstop) {
             this.onHitstop();
           }
@@ -495,6 +518,11 @@ export class LocalGameLoop {
     // Blood burst particles (more on death than on hit)
     const particleCount = enemy.enemyType === 'tank' ? 35 : 20;
     this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, particleCount);
+    this.eventBus.emit('bloodBurst', {
+      position: { ...enemy.position },
+      enemyType: enemy.enemyType,
+      intensity: particleCount,
+    });
 
     // Multiple blood decals around death position
     this.renderer.spawnBloodDecal(
@@ -514,6 +542,14 @@ export class LocalGameLoop {
     // Screen shake (bigger for tanks)
     const shakeIntensity = enemy.enemyType === 'tank' ? 0.8 : 0.4;
     this.renderer.addScreenShake(shakeIntensity);
+    this.eventBus.emit('screenShake', { intensity: shakeIntensity });
+
+    // Emit enemy killed event
+    this.eventBus.emit('enemyKilled', {
+      position: { ...enemy.position },
+      enemyType: enemy.enemyType,
+      score: finalScore,
+    });
 
     // Spawn drops (power-up takes priority over regular pickup)
     if (Math.random() < POWERUP_DROP_CHANCE) {
@@ -615,6 +651,12 @@ export class LocalGameLoop {
     // Hide cell from renderer
     this.renderer.removePowerCell(cellId);
 
+    // Emit event
+    this.eventBus.emit('cellPickedUp', {
+      cellId,
+      position: this.player ? { ...this.player.position } : { x: 0, y: 0, z: 0 },
+    });
+
     // Visual feedback
     this.ui.showNotification('POWER CELL ACQUIRED!', 0x00ffff);
   }
@@ -622,6 +664,9 @@ export class LocalGameLoop {
   private handleCellDrop(cellId: string, position: Vec3): void {
     // Re-create cell visual at drop position
     this.renderer.addPowerCellAt(cellId, position.x, position.z);
+
+    // Emit event
+    this.eventBus.emit('cellDropped', { cellId, position: { ...position } });
 
     // Visual feedback
     this.ui.showNotification('CELL DROPPED!', 0xff8800);
@@ -632,6 +677,9 @@ export class LocalGameLoop {
 
     // Update TARDIS power level
     this.renderer.setTardisPowerLevel(cellNumber);
+
+    // Emit event
+    this.eventBus.emit('cellDelivered', { cellNumber, totalCells });
 
     // Visual feedback
     this.ui.showNotification(`POWER INCREASING! (${cellNumber}/${totalCells})`, 0x00ffff);
@@ -646,6 +694,7 @@ export class LocalGameLoop {
 
     // Screen shake
     this.renderer.addScreenShake(0.6);
+    this.eventBus.emit('screenShake', { intensity: 0.6 });
 
     // Spawn mini-horde as penalty/challenge
     this.waveManager.addBonusEnemies(MINI_HORDE_SIZE);
@@ -654,9 +703,20 @@ export class LocalGameLoop {
   private handleObjectiveComplete(): void {
     if (!this.player) return;
 
+    // Emit event
+    this.eventBus.emit('objectiveComplete', {});
+
     // Visual feedback
     this.ui.showNotification('STRATEGIC RETREAT!', 0x00ff00);
     this.renderer.addScreenShake(1.0);
+    this.eventBus.emit('screenShake', { intensity: 1.0 });
+
+    // Emit game over event (won)
+    this.eventBus.emit('gameOver', {
+      won: true,
+      score: this.player.score,
+      wave: this.waveManager.getWaveNumber(),
+    });
 
     // Trigger win callback after a short delay for effect
     setTimeout(() => {
@@ -752,6 +812,13 @@ export class LocalGameLoop {
           // Trigger damage vignette (less intense with shield)
           if (damage > 0.5) {
             this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+
+            // Emit player hit event
+            this.eventBus.emit('playerHit', {
+              position: { ...this.player.position },
+              damage,
+              health: this.player.health,
+            });
           }
 
           if (this.player.health <= 0 && !this.player.isDead) {
@@ -759,9 +826,21 @@ export class LocalGameLoop {
             this.player.health = 0;
             // Death effects
             this.renderer.addScreenShake(1.5);
+            this.eventBus.emit('screenShake', { intensity: 1.5 });
             // Blood burst for player
             this.renderer.spawnBloodBurst(this.player.position, 'tank', 30);
             this.renderer.spawnBloodDecal(this.player.position.x, this.player.position.z, 2);
+
+            // Emit player died event
+            this.eventBus.emit('playerDied', { position: { ...this.player.position } });
+
+            // Emit game over event (lost)
+            this.eventBus.emit('gameOver', {
+              won: false,
+              score: this.player.score,
+              wave: this.waveManager.getWaveNumber(),
+            });
+
             // Trigger death callback
             if (this.onPlayerDeath) {
               this.onPlayerDeath(this.player.score, this.waveManager.getWaveNumber(), this.player.maxCombo);
