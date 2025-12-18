@@ -81,6 +81,15 @@ export class Game {
       }, 800);
     };
 
+    // Set up victory callback
+    this.localLoop.onGameWin = (score, wave, maxCombo) => {
+      // Delay victory screen slightly for dramatic effect
+      setTimeout(() => {
+        this.isRunning = false;
+        this.ui.showVictory(score, wave, maxCombo);
+      }, 500);
+    };
+
     // Build map visuals
     this.renderer.buildMap(this.mapData);
 
@@ -193,6 +202,9 @@ export class Game {
 
     // Update TARDIS effects
     this.renderer.updateTardis(0.016);
+
+    // Update power cell animations
+    this.renderer.updatePowerCells();
 
     // Update crosshair position
     this.ui.updateCrosshair(this.input.mouseX, this.input.mouseY);

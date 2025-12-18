@@ -4,6 +4,7 @@ import {
   MAX_ROOM_SIZE,
   ROOM_COUNT,
   CORRIDOR_WIDTH,
+  POWER_CELLS_REQUIRED,
 } from '@shared/constants';
 import { SeededRandom } from '@shared/utils';
 
@@ -35,6 +36,9 @@ export class MapGenerator {
     // Connect rooms with corridors
     this.connectRooms();
 
+    // Assign room types (spawn, TARDIS, cells, etc.)
+    this.assignRoomTypes();
+
     // Add noise details (debris, puddles)
     this.addNoise();
 
@@ -42,6 +46,10 @@ export class MapGenerator {
     const spawnPoints = this.findSpawnPoints();
     const enemySpawnPoints = this.findEnemySpawnPoints();
     const altarPositions = this.findAltarPositions();
+
+    // Get objective positions
+    const tardisPosition = this.findTardisPosition();
+    const cellPositions = this.findCellPositions();
 
     return {
       width: this.width,
@@ -51,7 +59,119 @@ export class MapGenerator {
       spawnPoints,
       enemySpawnPoints,
       altarPositions,
+      tardisPosition,
+      cellPositions,
     };
+  }
+
+  private assignRoomTypes(): void {
+    if (this.rooms.length < 5) {
+      console.warn('Not enough rooms for objective system');
+      return;
+    }
+
+    // Room 0 is always spawn
+    this.rooms[0].roomType = 'spawn';
+
+    // Get rooms that are not spawn and not adjacent to spawn
+    const spawnRoom = this.rooms[0];
+    const eligibleForTardis: Room[] = [];
+    const eligibleForCells: Room[] = [];
+
+    for (let i = 1; i < this.rooms.length; i++) {
+      const room = this.rooms[i];
+      const distFromSpawn = this.roomDistance(spawnRoom, room);
+
+      // TARDIS should be far from spawn (at least 2 rooms worth of distance)
+      if (distFromSpawn > 15) {
+        eligibleForTardis.push(room);
+      }
+
+      // Cells can be anywhere except spawn
+      eligibleForCells.push(room);
+    }
+
+    // Pick TARDIS room (prefer furthest from spawn)
+    if (eligibleForTardis.length > 0) {
+      // Sort by distance from spawn, pick from furthest
+      eligibleForTardis.sort((a, b) =>
+        this.roomDistance(spawnRoom, b) - this.roomDistance(spawnRoom, a)
+      );
+      const tardisRoom = eligibleForTardis[0];
+      tardisRoom.roomType = 'tardis';
+
+      // Remove TARDIS room from cell eligibility
+      const tardisIndex = eligibleForCells.indexOf(tardisRoom);
+      if (tardisIndex > -1) {
+        eligibleForCells.splice(tardisIndex, 1);
+      }
+    } else if (this.rooms.length > 1) {
+      // Fallback: use last room
+      this.rooms[this.rooms.length - 1].roomType = 'tardis';
+      const tardisIndex = eligibleForCells.indexOf(this.rooms[this.rooms.length - 1]);
+      if (tardisIndex > -1) {
+        eligibleForCells.splice(tardisIndex, 1);
+      }
+    }
+
+    // Pick rooms for power cells (spread them out)
+    const cellCount = Math.min(POWER_CELLS_REQUIRED, eligibleForCells.length);
+    const shuffled = this.shuffleArray([...eligibleForCells]);
+
+    for (let i = 0; i < cellCount; i++) {
+      shuffled[i].roomType = 'cell';
+    }
+
+    // Mark remaining rooms as normal
+    for (const room of this.rooms) {
+      if (!room.roomType) {
+        room.roomType = 'normal';
+      }
+    }
+  }
+
+  private roomDistance(a: Room, b: Room): number {
+    const aCenterX = a.x + a.width / 2;
+    const aCenterY = a.y + a.height / 2;
+    const bCenterX = b.x + b.width / 2;
+    const bCenterY = b.y + b.height / 2;
+    return Math.sqrt(
+      Math.pow(aCenterX - bCenterX, 2) +
+      Math.pow(aCenterY - bCenterY, 2)
+    );
+  }
+
+  private shuffleArray<T>(array: T[]): T[] {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = this.rng.int(0, i);
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  private findTardisPosition(): Vec2 | null {
+    const tardisRoom = this.rooms.find(r => r.roomType === 'tardis');
+    if (!tardisRoom) return null;
+
+    return {
+      x: Math.floor(tardisRoom.x + tardisRoom.width / 2),
+      y: Math.floor(tardisRoom.y + tardisRoom.height / 2),
+    };
+  }
+
+  private findCellPositions(): Vec2[] {
+    const positions: Vec2[] = [];
+
+    for (const room of this.rooms) {
+      if (room.roomType === 'cell') {
+        positions.push({
+          x: Math.floor(room.x + room.width / 2),
+          y: Math.floor(room.y + room.height / 2),
+        });
+      }
+    }
+
+    return positions;
   }
 
   private initializeTiles(): void {
@@ -89,6 +209,7 @@ export class MapGenerator {
         width: roomWidth,
         height: roomHeight,
         connected: false,
+        roomType: 'normal',
       };
 
       // Check for overlap with existing rooms (with padding)

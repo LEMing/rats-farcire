@@ -153,10 +153,14 @@ export function serializeGameState(state: GameState): SerializedGameState {
     enemies: Array.from(state.enemies.entries()),
     projectiles: Array.from(state.projectiles.entries()),
     pickups: Array.from(state.pickups.entries()),
+    powerCells: Array.from(state.powerCells.entries()),
     wave: state.wave,
     waveEnemiesRemaining: state.waveEnemiesRemaining,
     waveActive: state.waveActive,
     gameOver: state.gameOver,
+    cellsDelivered: state.cellsDelivered,
+    cellsRequired: state.cellsRequired,
+    gameWon: state.gameWon,
   };
 }
 
@@ -168,10 +172,14 @@ export function deserializeGameState(data: SerializedGameState): GameState {
     enemies: new Map(data.enemies),
     projectiles: new Map(data.projectiles),
     pickups: new Map(data.pickups),
+    powerCells: new Map(data.powerCells),
     wave: data.wave,
     waveEnemiesRemaining: data.waveEnemiesRemaining,
     waveActive: data.waveActive,
     gameOver: data.gameOver,
+    cellsDelivered: data.cellsDelivered,
+    cellsRequired: data.cellsRequired,
+    gameWon: data.gameWon,
   };
 }
 

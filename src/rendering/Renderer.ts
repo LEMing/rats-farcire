@@ -87,6 +87,10 @@ export class Renderer {
   private tardis: TardisInstance | null = null;
   private isWaveTransition = false;
 
+  // Power cells
+  private powerCells: Map<string, THREE.Group> = new Map();
+  private powerCellIds: string[] = [];
+
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
   private time = 0;
@@ -480,10 +484,17 @@ export class Renderer {
       this.createAltar(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
     }
 
-    // Create TARDIS at player spawn point
-    if (mapData.spawnPoints.length > 0) {
-      const spawn = mapData.spawnPoints[0];
-      this.spawnTardis(spawn.x * TILE_SIZE, spawn.y * TILE_SIZE);
+    // Create TARDIS at designated position (objective room)
+    if (mapData.tardisPosition) {
+      this.spawnTardis(
+        mapData.tardisPosition.x * TILE_SIZE,
+        mapData.tardisPosition.y * TILE_SIZE
+      );
+    }
+
+    // Create power cells at designated positions
+    for (const pos of mapData.cellPositions) {
+      this.createPowerCell(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
     }
 
     // Add environmental decorations
@@ -634,6 +645,123 @@ export class Renderer {
     if (!this.tardis) return null;
     const pos = this.tardis.group.position;
     return { x: pos.x, y: pos.y, z: pos.z };
+  }
+
+  setTardisPowerLevel(level: number): void {
+    if (this.tardis) {
+      // Update TARDIS lamp brightness based on power level
+      const brightness = level / 3;
+      TardisFactory.setPowerLevel(this.tardis, brightness);
+    }
+  }
+
+  // ============================================================================
+  // Power Cell System
+  // ============================================================================
+
+  private createPowerCell(x: number, z: number): string {
+    const cellId = `cell_${this.powerCellIds.length}`;
+    const cellGroup = new THREE.Group();
+    cellGroup.position.set(x, 0, z);
+
+    // Core crystal (cyan glowing orb)
+    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    core.position.y = 0.8;
+    core.name = 'core';
+    cellGroup.add(core);
+
+    // Outer glow shell
+    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.3,
+    });
+    const glow = new THREE.Mesh(glowGeom, glowMat);
+    glow.position.y = 0.8;
+    glow.name = 'glow';
+    cellGroup.add(glow);
+
+    // Base pedestal
+    const baseGeom = new THREE.CylinderGeometry(0.3, 0.4, 0.2, 8);
+    const baseMat = new THREE.MeshLambertMaterial({ color: 0x334455 });
+    const base = new THREE.Mesh(baseGeom, baseMat);
+    base.position.y = 0.1;
+    cellGroup.add(base);
+
+    // Point light for glow effect
+    const light = new THREE.PointLight(0x00ffff, 1, 6);
+    light.position.y = 0.8;
+    cellGroup.add(light);
+
+    // Store metadata
+    cellGroup.userData.mapObject = true;
+    cellGroup.userData.cellId = cellId;
+    cellGroup.userData.baseY = 0.8;
+
+    this.scene.add(cellGroup);
+    this.powerCells.set(cellId, cellGroup);
+    this.powerCellIds.push(cellId);
+
+    return cellId;
+  }
+
+  updatePowerCells(): void {
+    const pulse = Math.sin(this.time * 3) * 0.5 + 0.5;
+
+    for (const [, cellGroup] of this.powerCells) {
+      // Rotate and bob
+      const core = cellGroup.getObjectByName('core') as THREE.Mesh;
+      const glow = cellGroup.getObjectByName('glow') as THREE.Mesh;
+
+      if (core && glow) {
+        core.rotation.y += 0.02;
+        glow.rotation.y -= 0.01;
+
+        // Pulsing scale
+        const scale = 1 + pulse * 0.1;
+        glow.scale.setScalar(scale);
+
+        // Bob up and down
+        const baseY = cellGroup.userData.baseY || 0.8;
+        core.position.y = baseY + Math.sin(this.time * 2) * 0.1;
+        glow.position.y = core.position.y;
+      }
+
+      // Update light intensity
+      const light = cellGroup.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight;
+      if (light) {
+        light.intensity = 0.8 + pulse * 0.4;
+      }
+    }
+  }
+
+  removePowerCell(cellId: string): void {
+    const cellGroup = this.powerCells.get(cellId);
+    if (cellGroup) {
+      this.scene.remove(cellGroup);
+      this.powerCells.delete(cellId);
+    }
+  }
+
+  getPowerCellPosition(cellId: string): Vec3 | null {
+    const cellGroup = this.powerCells.get(cellId);
+    if (!cellGroup) return null;
+    return {
+      x: cellGroup.position.x,
+      y: cellGroup.position.y,
+      z: cellGroup.position.z,
+    };
+  }
+
+  getPowerCellIds(): string[] {
+    return [...this.powerCellIds];
   }
 
   updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {

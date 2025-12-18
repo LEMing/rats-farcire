@@ -17,7 +17,7 @@ export interface Vec3 {
 // Entity Types
 // ============================================================================
 
-export type EntityType = 'player' | 'enemy' | 'projectile' | 'pickup';
+export type EntityType = 'player' | 'enemy' | 'projectile' | 'pickup' | 'powerCell';
 
 export interface Entity {
   id: string;
@@ -25,6 +25,17 @@ export interface Entity {
   position: Vec3;
   rotation: number;
   velocity: Vec2;
+}
+
+// ============================================================================
+// Power Cell System (Objective)
+// ============================================================================
+
+export interface PowerCellState extends Entity {
+  type: 'powerCell';
+  collected: boolean;
+  delivered: boolean;
+  carriedBy: string | null; // player id
 }
 
 export interface PlayerState extends Entity {
@@ -51,6 +62,8 @@ export interface PlayerState extends Entity {
     vampire?: number;
     shield?: number;
   };
+  // Power Cell carrying
+  carryingCellId: string | null;
 }
 
 export interface EnemyState extends Entity {
@@ -97,12 +110,15 @@ export interface Tile {
   variant: number;
 }
 
+export type RoomType = 'spawn' | 'normal' | 'tardis' | 'cell' | 'altar';
+
 export interface Room {
   x: number;
   y: number;
   width: number;
   height: number;
   connected: boolean;
+  roomType: RoomType;
 }
 
 export interface MapData {
@@ -113,6 +129,9 @@ export interface MapData {
   spawnPoints: Vec2[];
   enemySpawnPoints: Vec2[];
   altarPositions: Vec2[];
+  // Objective system
+  tardisPosition: Vec2 | null;
+  cellPositions: Vec2[];
 }
 
 // ============================================================================
@@ -133,10 +152,15 @@ export interface GameState {
   enemies: Map<string, EnemyState>;
   projectiles: Map<string, ProjectileState>;
   pickups: Map<string, PickupState>;
+  powerCells: Map<string, PowerCellState>;
   wave: number;
   waveEnemiesRemaining: number;
   waveActive: boolean;
   gameOver: boolean;
+  // Objective system
+  cellsDelivered: number;
+  cellsRequired: number;
+  gameWon: boolean;
 }
 
 // Serializable version for network
@@ -147,10 +171,14 @@ export interface SerializedGameState {
   enemies: [string, EnemyState][];
   projectiles: [string, ProjectileState][];
   pickups: [string, PickupState][];
+  powerCells: [string, PowerCellState][];
   wave: number;
   waveEnemiesRemaining: number;
   waveActive: boolean;
   gameOver: boolean;
+  cellsDelivered: number;
+  cellsRequired: number;
+  gameWon: boolean;
 }
 
 // ============================================================================

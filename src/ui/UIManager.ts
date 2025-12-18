@@ -21,6 +21,10 @@ export interface UIState {
     shield?: number;
   };
   gameTime?: number;
+  // Objective system
+  cellsDelivered?: number;
+  cellsRequired?: number;
+  carryingCell?: boolean;
 }
 
 export class UIManager {
@@ -40,6 +44,8 @@ export class UIManager {
     killFlash: HTMLElement;
     damageNumbersContainer: HTMLElement;
     powerUpContainer: HTMLElement;
+    objectiveDisplay: HTMLElement;
+    carryingIndicator: HTMLElement;
   };
 
   private comboDisplayScale = 1;
@@ -64,6 +70,8 @@ export class UIManager {
       killFlash: this.createKillFlash(),
       damageNumbersContainer: this.createDamageNumbersContainer(),
       powerUpContainer: this.createPowerUpContainer(),
+      objectiveDisplay: this.createObjectiveDisplay(),
+      carryingIndicator: this.createCarryingIndicator(),
     };
     this.elements.comboCount = this.elements.comboContainer.querySelector('.combo-count')!;
     this.elements.comboBar = this.elements.comboContainer.querySelector('.combo-bar-fill')!;
@@ -141,6 +149,92 @@ export class UIManager {
     `;
     document.getElementById('ui-overlay')?.appendChild(container);
     return container;
+  }
+
+  private createObjectiveDisplay(): HTMLElement {
+    const container = document.createElement('div');
+    container.id = 'objective-display';
+    container.style.cssText = `
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+      z-index: 30;
+    `;
+    container.innerHTML = `
+      <div style="
+        font-size: 14px;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+      ">OBJECTIVE: POWER THE TARDIS</div>
+      <div class="cell-indicators" style="
+        display: flex;
+        gap: 12px;
+      ">
+        <div class="cell-indicator" data-index="0" style="
+          width: 30px;
+          height: 30px;
+          border: 2px solid #00ffff;
+          background: rgba(0, 255, 255, 0.1);
+          border-radius: 4px;
+          transition: all 0.3s;
+        "></div>
+        <div class="cell-indicator" data-index="1" style="
+          width: 30px;
+          height: 30px;
+          border: 2px solid #00ffff;
+          background: rgba(0, 255, 255, 0.1);
+          border-radius: 4px;
+          transition: all 0.3s;
+        "></div>
+        <div class="cell-indicator" data-index="2" style="
+          width: 30px;
+          height: 30px;
+          border: 2px solid #00ffff;
+          background: rgba(0, 255, 255, 0.1);
+          border-radius: 4px;
+          transition: all 0.3s;
+        "></div>
+      </div>
+    `;
+    document.getElementById('ui-overlay')?.appendChild(container);
+    return container;
+  }
+
+  private createCarryingIndicator(): HTMLElement {
+    const indicator = document.createElement('div');
+    indicator.id = 'carrying-indicator';
+    indicator.style.cssText = `
+      position: absolute;
+      bottom: 150px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      background: rgba(0, 255, 255, 0.2);
+      border: 2px solid #00ffff;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #00ffff;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      pointer-events: none;
+      z-index: 35;
+      display: none;
+      animation: carryingPulse 1s ease-in-out infinite;
+    `;
+    indicator.innerHTML = `
+      <span>⚡ CARRYING POWER CELL ⚡</span>
+      <div style="font-size: 12px; margin-top: 4px; opacity: 0.7;">Shoot or press E to drop • Walk to TARDIS to deliver</div>
+    `;
+    document.getElementById('ui-overlay')?.appendChild(indicator);
+    return indicator;
   }
 
   private createComboDisplay(): HTMLElement {
@@ -266,6 +360,35 @@ export class UIManager {
 
     // Power-up display
     this.updatePowerUpDisplay(state.powerUps, state.gameTime);
+
+    // Objective display
+    this.updateObjectiveDisplay(state.cellsDelivered, state.cellsRequired, state.carryingCell);
+  }
+
+  private updateObjectiveDisplay(cellsDelivered?: number, cellsRequired?: number, carryingCell?: boolean): void {
+    // Update cell indicators
+    if (cellsDelivered !== undefined && cellsRequired !== undefined) {
+      const indicators = this.elements.objectiveDisplay.querySelectorAll('.cell-indicator');
+      indicators.forEach((indicator, index) => {
+        const el = indicator as HTMLElement;
+        if (index < cellsDelivered) {
+          // Delivered - full glow
+          el.style.background = '#00ffff';
+          el.style.boxShadow = '0 0 15px #00ffff';
+        } else {
+          // Not delivered
+          el.style.background = 'rgba(0, 255, 255, 0.1)';
+          el.style.boxShadow = 'none';
+        }
+      });
+    }
+
+    // Carrying indicator
+    if (carryingCell) {
+      this.elements.carryingIndicator.style.display = 'block';
+    } else {
+      this.elements.carryingIndicator.style.display = 'none';
+    }
   }
 
   private updatePowerUpDisplay(powerUps?: UIState['powerUps'], gameTime?: number): void {
@@ -523,6 +646,144 @@ export class UIManager {
     }, 1500);
   }
 
+  showNotification(text: string, color: number): void {
+    const overlay = document.getElementById('ui-overlay')!;
+
+    const notification = document.createElement('div');
+    const hexColor = '#' + color.toString(16).padStart(6, '0');
+
+    notification.style.cssText = `
+      position: absolute;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(1);
+      font-size: 28px;
+      font-weight: bold;
+      color: ${hexColor};
+      text-shadow: 0 0 15px ${hexColor}, 2px 2px 0 #000;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      pointer-events: none;
+      z-index: 70;
+      animation: powerUpNotification 2s ease-out forwards;
+    `;
+    notification.textContent = text;
+
+    overlay.appendChild(notification);
+
+    setTimeout(() => {
+      notification.remove();
+    }, 2000);
+  }
+
+  showVictory(score: number, wave: number, maxCombo: number): void {
+    const overlay = document.getElementById('ui-overlay')!;
+
+    // Hide combo and objective displays
+    this.elements.comboContainer.style.opacity = '0';
+    this.elements.objectiveDisplay.style.opacity = '0';
+    this.elements.carryingIndicator.style.display = 'none';
+
+    const victoryDiv = document.createElement('div');
+    victoryDiv.id = 'victory-screen';
+    victoryDiv.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0, 40, 80, 0);
+      pointer-events: auto;
+      animation: fadeInBlue 0.5s ease-out forwards;
+    `;
+
+    // Add victory animation keyframes
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fadeInBlue {
+        from { background: rgba(0, 80, 120, 0); }
+        to { background: rgba(0, 30, 60, 0.9); }
+      }
+      @keyframes victoryGlow {
+        0%, 100% { text-shadow: 0 0 30px #00ffff, 0 0 60px #00ffff; }
+        50% { text-shadow: 0 0 50px #00ffff, 0 0 100px #00ffff, 0 0 150px #00ffff; }
+      }
+      #victory-screen h1 {
+        animation: slideUp 0.4s ease-out 0.2s both, victoryGlow 2s ease-in-out infinite;
+      }
+      #victory-screen .stats {
+        animation: slideUp 0.4s ease-out 0.4s both;
+      }
+      #victory-screen button {
+        animation: slideUp 0.4s ease-out 0.6s both, pulse 2s ease-in-out 1s infinite;
+      }
+    `;
+    document.head.appendChild(style);
+
+    const comboText = maxCombo > 1 ? `Best Combo: ${maxCombo}x` : '';
+
+    victoryDiv.innerHTML = `
+      <h1 style="
+        font-size: 64px;
+        color: #00ffff;
+        margin-bottom: 10px;
+        text-shadow: 0 0 30px #00ffff, 0 0 60px #00ffff;
+        letter-spacing: 8px;
+      ">STRATEGIC RETREAT!</h1>
+      <div style="
+        font-size: 20px;
+        color: #88ccff;
+        margin-bottom: 30px;
+        letter-spacing: 4px;
+      ">TARDIS POWERED - ESCAPE SUCCESSFUL</div>
+      <div class="stats" style="
+        text-align: center;
+        margin-bottom: 40px;
+      ">
+        <p style="font-size: 56px; color: #ffdd00; margin: 10px 0; text-shadow: 2px 2px 0 #000;">
+          ${score.toLocaleString()}
+        </p>
+        <p style="font-size: 18px; color: #888; text-transform: uppercase; letter-spacing: 3px; margin: 5px 0;">
+          Final Score
+        </p>
+        <p style="font-size: 24px; color: #aaa; margin: 20px 0 5px;">
+          Survived Wave ${wave}
+        </p>
+        ${comboText ? `
+        <p style="font-size: 20px; color: #ff8844; margin: 5px 0;">
+          ${comboText}
+        </p>` : ''}
+      </div>
+      <button id="btn-play-again" style="
+        padding: 18px 50px;
+        font-size: 22px;
+        cursor: pointer;
+        background: linear-gradient(180deg, #0088cc, #005588);
+        color: #fff;
+        border: 2px solid #00aaff;
+        border-radius: 8px;
+        font-family: inherit;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        box-shadow: 0 4px 15px rgba(0, 150, 255, 0.3);
+        transition: all 0.2s;
+      " onmouseover="this.style.background='linear-gradient(180deg, #00aadd, #006699)'; this.style.transform='scale(1.05)'"
+         onmouseout="this.style.background='linear-gradient(180deg, #0088cc, #005588)'; this.style.transform='scale(1)'">
+        Play Again
+      </button>
+    `;
+
+    overlay.appendChild(victoryDiv);
+
+    document.getElementById('btn-play-again')?.addEventListener('click', () => {
+      window.location.reload();
+    });
+  }
+
   // Add CSS animation for damage numbers
   private static stylesInjected = false;
   private injectStyles(): void {
@@ -562,6 +823,16 @@ export class UIManager {
         100% {
           opacity: 0;
           transform: translate(-50%, -70%) scale(0.8);
+        }
+      }
+      @keyframes carryingPulse {
+        0%, 100% {
+          box-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+          transform: translateX(-50%) scale(1);
+        }
+        50% {
+          box-shadow: 0 0 25px rgba(0, 255, 255, 0.8);
+          transform: translateX(-50%) scale(1.02);
         }
       }
     `;

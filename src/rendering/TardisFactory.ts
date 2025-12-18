@@ -442,12 +442,51 @@ export class TardisFactory {
   static updateLampPulse(tardis: TardisInstance, time: number, isWaveTransition: boolean): void {
     if (tardis.materializing) return;
 
+    // Base intensity depends on power level
+    const basePower = (tardis as TardisInstanceWithPower).powerLevel ?? 0;
+    const baseIntensity = 0.1 + basePower * 0.6; // 0.1 -> 0.7 as power increases
+
     if (isWaveTransition) {
       // Rapid pulse during wave transition
-      tardis.lampLight.intensity = 0.8 + Math.sin(time * 8) * 0.6;
+      tardis.lampLight.intensity = baseIntensity + Math.sin(time * 8) * 0.4;
     } else {
       // Gentle ambient pulse
-      tardis.lampLight.intensity = 0.4 + Math.sin(time * 1.5) * 0.2;
+      tardis.lampLight.intensity = baseIntensity + Math.sin(time * 1.5) * 0.15;
     }
   }
+
+  // Set power level (0-1 representing 0-3 cells delivered)
+  static setPowerLevel(tardis: TardisInstance, level: number): void {
+    (tardis as TardisInstanceWithPower).powerLevel = level;
+
+    // Update window glow intensity based on power
+    tardis.group.traverse((child) => {
+      if (child instanceof THREE.PointLight && child.position.y < 3) {
+        // Interior glow light
+        child.intensity = 0.1 + level * 0.5;
+      }
+      // Update window materials to be brighter
+      if (child instanceof THREE.Mesh) {
+        const mat = child.material as THREE.MeshBasicMaterial;
+        if (mat.color && mat.color.getHex() === WINDOW_GLOW) {
+          mat.opacity = 0.2 + level * 0.6;
+        }
+      }
+    });
+
+    // Update lamp globe brightness
+    const lampMat = tardis.lamp.material as THREE.MeshBasicMaterial;
+    lampMat.opacity = 0.3 + level * 0.7;
+
+    // If fully powered, make it glow more
+    if (level >= 1) {
+      tardis.lampLight.color.setHex(0xffffff);
+      tardis.lampLight.intensity = 2;
+    }
+  }
+}
+
+// Extended interface with power level tracking
+interface TardisInstanceWithPower extends TardisInstance {
+  powerLevel?: number;
 }

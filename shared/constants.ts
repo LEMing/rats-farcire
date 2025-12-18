@@ -98,6 +98,14 @@ export const HEALTH_PACK_VALUE = 45; // more health per pack
 export const AMMO_PACK_VALUE = 20;
 export const PICKUP_SPAWN_CHANCE = 0.4; // 40% chance on enemy death
 
+// Power Cell Objective System
+export const POWER_CELLS_REQUIRED = 3;
+export const CELL_PICKUP_RADIUS = 1.2; // How close to pick up a cell
+export const CELL_DELIVERY_RADIUS = 2.0; // How close to TARDIS to deliver
+export const CELL_CARRY_SPEED_MULTIPLIER = 0.75; // 75% speed when carrying
+export const CELL_DROP_KEY = 'KeyE'; // Key to drop cell (interact key)
+export const MINI_HORDE_SIZE = 6; // Enemies spawned when delivering a cell
+
 // Networking
 export const SERVER_PORT = 8080;
 export const MAX_PLAYERS_PER_ROOM = 4;

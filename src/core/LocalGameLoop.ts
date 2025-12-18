@@ -5,6 +5,7 @@ import type {
   EnemyState,
   ProjectileState,
   PickupState,
+  PowerCellState,
   Vec2,
   Vec3,
 } from '@shared/types';
@@ -37,6 +38,11 @@ import {
   POWERUP_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
+  POWER_CELLS_REQUIRED,
+  CELL_PICKUP_RADIUS,
+  CELL_DELIVERY_RADIUS,
+  CELL_CARRY_SPEED_MULTIPLIER,
+  MINI_HORDE_SIZE,
 } from '@shared/constants';
 import type { PowerUpType } from '@shared/types';
 import {
@@ -68,6 +74,12 @@ export class LocalGameLoop {
   private enemies: Map<string, EnemyState> = new Map();
   private projectiles: Map<string, ProjectileState> = new Map();
   private pickups: Map<string, PickupState> = new Map();
+  private powerCells: Map<string, PowerCellState> = new Map();
+
+  // Objective system
+  private cellsDelivered = 0;
+  private gameWon = false;
+  private tardisPosition: Vec2 | null = null;
 
   private wave = 0;
   private waveEnemiesRemaining = 0;
@@ -86,6 +98,12 @@ export class LocalGameLoop {
   // Player death callback
   public onPlayerDeath: ((score: number, wave: number, maxCombo: number) => void) | null = null;
 
+  // Game win callback
+  public onGameWin: ((score: number, wave: number, maxCombo: number) => void) | null = null;
+
+  // Cell delivery callback (for UI feedback)
+  public onCellDelivered: ((cellNumber: number, totalCells: number) => void) | null = null;
+
   // Track last afterimage spawn time for dash
   private lastAfterimageTime = 0;
 
@@ -95,6 +113,36 @@ export class LocalGameLoop {
     this.ui = ui;
     this.renderer = renderer;
     this.ai = new EnemyAI(mapData);
+
+    // Store TARDIS position for delivery checks
+    this.tardisPosition = mapData.tardisPosition;
+
+    // Initialize power cells from map data (not renderer, as buildMap may not have been called yet)
+    this.initializePowerCells();
+  }
+
+  private initializePowerCells(): void {
+    // Initialize from mapData cell positions directly
+    const cellPositions = this.mapData.cellPositions;
+
+    for (let i = 0; i < cellPositions.length; i++) {
+      const pos = cellPositions[i];
+      const cellId = `cell_${i}`;
+
+      const cell: PowerCellState = {
+        id: cellId,
+        type: 'powerCell',
+        position: { x: pos.x * TILE_SIZE, y: 0.5, z: pos.y * TILE_SIZE },
+        rotation: 0,
+        velocity: { x: 0, y: 0 },
+        collected: false,
+        delivered: false,
+        carriedBy: null,
+      };
+      this.powerCells.set(cellId, cell);
+    }
+
+    console.log(`Initialized ${this.powerCells.size} power cells at positions:`, cellPositions);
   }
 
   spawnLocalPlayer(position: Vec2): void {
@@ -123,6 +171,8 @@ export class LocalGameLoop {
       maxCombo: 0,
       // Power-ups
       powerUps: {},
+      // Power Cell carrying
+      carryingCellId: null,
     };
 
     this.entities.setLocalPlayerId(playerId);
@@ -133,7 +183,7 @@ export class LocalGameLoop {
   }
 
   update(input: InputState, dt: number): void {
-    if (!this.player || this.player.isDead) return;
+    if (!this.player || this.player.isDead || this.gameWon) return;
 
     this.gameTime += dt;
 
@@ -147,6 +197,9 @@ export class LocalGameLoop {
 
     // Update player
     this.updatePlayer(input, dt);
+
+    // Update power cells (pickup, drop, carry, deliver)
+    this.updatePowerCells(input);
 
     // Update enemies
     this.updateEnemies(dt);
@@ -172,6 +225,10 @@ export class LocalGameLoop {
       comboTimer: this.player.comboTimer,
       powerUps: this.player.powerUps,
       gameTime: this.gameTime,
+      // Objective info
+      cellsDelivered: this.cellsDelivered,
+      cellsRequired: POWER_CELLS_REQUIRED,
+      carryingCell: this.player.carryingCellId !== null,
     });
   }
 
@@ -185,8 +242,8 @@ export class LocalGameLoop {
       this.player.dashCooldown -= dt;
     }
 
-    // Start dash
-    if (input.dash && this.player.dashCooldown <= 0 && !this.player.isDashing) {
+    // Start dash (cannot dash while carrying a cell)
+    if (input.dash && this.player.dashCooldown <= 0 && !this.player.isDashing && !this.player.carryingCellId) {
       this.player.isDashing = true;
       this.player.dashStartTime = this.gameTime;
       this.player.dashCooldown = DASH_COOLDOWN;
@@ -234,10 +291,11 @@ export class LocalGameLoop {
         newVelZ = moveDir.y * PLAYER_SPEED;
       }
     } else {
-      // Normal movement
+      // Normal movement (slower when carrying a cell)
       const moveDir = normalize({ x: input.moveX, y: input.moveY });
-      newVelX = moveDir.x * PLAYER_SPEED;
-      newVelZ = moveDir.y * PLAYER_SPEED;
+      const speedMultiplier = this.player.carryingCellId ? CELL_CARRY_SPEED_MULTIPLIER : 1;
+      newVelX = moveDir.x * PLAYER_SPEED * speedMultiplier;
+      newVelZ = moveDir.y * PLAYER_SPEED * speedMultiplier;
     }
 
     // Calculate new position
@@ -259,8 +317,12 @@ export class LocalGameLoop {
     // Rotation (aim direction)
     this.player.rotation = Math.atan2(input.aimX, input.aimY);
 
-    // Shooting (not while dashing)
+    // Shooting (not while dashing, auto-drops cell if carrying)
     if (input.shooting && this.player.ammo > 0 && !this.player.isDashing) {
+      // Auto-drop cell when shooting
+      if (this.player.carryingCellId) {
+        this.dropCell();
+      }
       const timeSinceLastShot = this.gameTime - this.player.lastShootTime;
       // Rapid fire power-up reduces cooldown
       const hasRapidFire = this.player.powerUps.rapidFire && this.player.powerUps.rapidFire > this.gameTime;
@@ -568,6 +630,157 @@ export class LocalGameLoop {
       this.pickups.delete(id);
       this.entities.removeEntity(id);
     }
+  }
+
+  // ============================================================================
+  // Power Cell System
+  // ============================================================================
+
+  private updatePowerCells(input: InputState): void {
+    if (!this.player || this.gameWon) return;
+
+    const playerPos = { x: this.player.position.x, y: this.player.position.z };
+
+    // Check for cell drop (interact key while carrying)
+    if (input.interact && this.player.carryingCellId) {
+      this.dropCell();
+      return;
+    }
+
+    // If carrying a cell, check for TARDIS delivery
+    if (this.player.carryingCellId) {
+      this.checkCellDelivery(playerPos);
+      return;
+    }
+
+    // Not carrying - check for cell pickup
+    for (const [cellId, cell] of this.powerCells) {
+      if (cell.collected || cell.delivered) continue;
+
+      const cellPos = { x: cell.position.x, y: cell.position.z };
+      const dist = distance(playerPos, cellPos);
+
+      if (dist < CELL_PICKUP_RADIUS) {
+        this.pickupCell(cellId);
+        break;
+      }
+    }
+  }
+
+  private pickupCell(cellId: string): void {
+    if (!this.player) return;
+
+    const cell = this.powerCells.get(cellId);
+    if (!cell) return;
+
+    cell.collected = true;
+    cell.carriedBy = this.player.id;
+    this.player.carryingCellId = cellId;
+
+    // Hide cell from renderer
+    this.renderer.removePowerCell(cellId);
+
+    // Visual feedback
+    this.ui.showNotification('POWER CELL ACQUIRED!', 0x00ffff);
+  }
+
+  private dropCell(): void {
+    if (!this.player || !this.player.carryingCellId) return;
+
+    const cell = this.powerCells.get(this.player.carryingCellId);
+    if (!cell) return;
+
+    // Drop cell at player position
+    cell.position = { ...this.player.position };
+    cell.collected = false;
+    cell.carriedBy = null;
+    this.player.carryingCellId = null;
+
+    // Re-create cell in renderer at new position
+    // Note: For now, dropped cells can't be re-picked up visually
+    // TODO: Add dropped cell rendering
+
+    // Visual feedback
+    this.ui.showNotification('CELL DROPPED!', 0xff8800);
+  }
+
+  private checkCellDelivery(playerPos: Vec2): void {
+    if (!this.player || !this.player.carryingCellId || !this.tardisPosition) return;
+
+    // Get TARDIS world position
+    const tardisWorldPos = {
+      x: this.tardisPosition.x * TILE_SIZE,
+      y: this.tardisPosition.y * TILE_SIZE,
+    };
+
+    const dist = distance(playerPos, tardisWorldPos);
+
+    if (dist < CELL_DELIVERY_RADIUS) {
+      this.deliverCell();
+    }
+  }
+
+  private deliverCell(): void {
+    if (!this.player || !this.player.carryingCellId) return;
+
+    const cell = this.powerCells.get(this.player.carryingCellId);
+    if (!cell) return;
+
+    // Mark cell as delivered
+    cell.delivered = true;
+    cell.carriedBy = null;
+    this.player.carryingCellId = null;
+    this.cellsDelivered++;
+
+    // Update TARDIS power level
+    this.renderer.setTardisPowerLevel(this.cellsDelivered);
+
+    // Visual feedback
+    this.ui.showNotification(`POWER INCREASING! (${this.cellsDelivered}/${POWER_CELLS_REQUIRED})`, 0x00ffff);
+
+    // Callback for UI
+    if (this.onCellDelivered) {
+      this.onCellDelivered(this.cellsDelivered, POWER_CELLS_REQUIRED);
+    }
+
+    // Score bonus for delivery
+    this.player.score += 500;
+
+    // Screen shake
+    this.renderer.addScreenShake(0.6);
+
+    // Spawn mini-horde as penalty/challenge
+    this.spawnMiniHorde();
+
+    // Check for win condition
+    if (this.cellsDelivered >= POWER_CELLS_REQUIRED) {
+      this.triggerVictory();
+    }
+  }
+
+  private spawnMiniHorde(): void {
+    // Spawn a small horde of enemies near the TARDIS
+    for (let i = 0; i < MINI_HORDE_SIZE; i++) {
+      this.spawnEnemy();
+      this.waveEnemiesRemaining++;
+    }
+  }
+
+  private triggerVictory(): void {
+    if (!this.player) return;
+
+    this.gameWon = true;
+
+    // Visual feedback
+    this.ui.showNotification('STRATEGIC RETREAT!', 0x00ff00);
+    this.renderer.addScreenShake(1.0);
+
+    // Trigger win callback after a short delay for effect
+    setTimeout(() => {
+      if (this.onGameWin && this.player) {
+        this.onGameWin(this.player.score, this.wave, this.player.maxCombo);
+      }
+    }, 1500);
   }
 
   private updateEnemies(dt: number): void {
