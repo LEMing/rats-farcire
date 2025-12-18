@@ -292,7 +292,11 @@ export class Renderer {
     );
     this.materials.set(
       'wall',
-      new THREE.MeshLambertMaterial({ color: COLORS.wall })
+      new THREE.MeshLambertMaterial({
+        color: COLORS.wall,
+        transparent: true,
+        opacity: 0.7,
+      })
     );
     this.materials.set(
       'debris',
