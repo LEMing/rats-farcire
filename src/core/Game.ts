@@ -29,7 +29,7 @@ export class Game {
 
   // Hitstop system
   private hitstopTimer = 0;
-  private readonly HITSTOP_DURATION = 30; // ms
+  private readonly HITSTOP_DURATION = 8; // ms - subtle punch, not annoying with shotgun
 
   // Game time for effects
   private gameTime = 0;
