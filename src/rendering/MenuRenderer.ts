@@ -66,9 +66,13 @@ export class MenuRenderer {
       console.log('Menu renderer initialized');
     } catch (e) {
       console.warn('Menu renderer initialization failed, skipping animated background:', e);
-      // Clean up any partial initialization
-      if (this.renderer?.domElement?.parentElement) {
-        this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+      // Clean up any partial initialization - safely remove canvas
+      try {
+        if (this.renderer?.domElement && this.container.contains(this.renderer.domElement)) {
+          this.container.removeChild(this.renderer.domElement);
+        }
+      } catch {
+        // Ignore cleanup errors
       }
       this.initialized = false;
     }
@@ -95,12 +99,13 @@ export class MenuRenderer {
   dispose(): void {
     this.stop();
 
-    if (this.renderer?.domElement) {
+    // Safely remove canvas if it's in the container
+    if (this.renderer?.domElement && this.container.contains(this.renderer.domElement)) {
       this.container.removeChild(this.renderer.domElement);
     }
 
     this.disposeFloatingMeatballs();
-    this.scene.clear();
+    this.scene?.clear();
   }
 
   // ---------------------------------------------------------------------------
