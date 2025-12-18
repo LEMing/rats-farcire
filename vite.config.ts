@@ -15,4 +15,14 @@ export default defineConfig({
     // Set WS_SERVER_URL env variable when building for production
     __WS_SERVER_URL__: JSON.stringify(process.env.WS_SERVER_URL || ''),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split Three.js into separate chunk for better caching
+          three: ['three', 'three/webgpu', 'three/tsl'],
+        },
+      },
+    },
+  },
 });
