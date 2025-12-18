@@ -5,7 +5,6 @@ import type {
   EnemyState,
   ProjectileState,
   PickupState,
-  PowerCellState,
   Vec2,
   Vec3,
 } from '@shared/types';
@@ -21,9 +20,7 @@ import {
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
   TILE_SIZE,
-  getWaveConfig,
   getEnemySpeedMultiplier,
-  WAVE_START_DELAY,
   HEALTH_PACK_VALUE,
   AMMO_PACK_VALUE,
   PICKUP_SPAWN_CHANCE,
@@ -38,12 +35,11 @@ import {
   POWERUP_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
-  POWER_CELLS_REQUIRED,
-  CELL_PICKUP_RADIUS,
-  CELL_DELIVERY_RADIUS,
   CELL_CARRY_SPEED_MULTIPLIER,
   MINI_HORDE_SIZE,
 } from '@shared/constants';
+import { WaveManager, SpawnRequest } from '../systems/WaveManager';
+import { ObjectiveSystem } from '../systems/ObjectiveSystem';
 import type { PowerUpType } from '@shared/types';
 import {
   generateId,
@@ -51,8 +47,6 @@ import {
   distance,
   circleCollision,
   angleBetween,
-  weightedRandom,
-  randomChoice,
 } from '@shared/utils';
 import { EntityManager } from '../ecs/EntityManager';
 import { UIManager } from '../ui/UIManager';
@@ -74,21 +68,10 @@ export class LocalGameLoop {
   private enemies: Map<string, EnemyState> = new Map();
   private projectiles: Map<string, ProjectileState> = new Map();
   private pickups: Map<string, PickupState> = new Map();
-  private powerCells: Map<string, PowerCellState> = new Map();
 
-  // Objective system
-  private cellsDelivered = 0;
-  private gameWon = false;
-  private tardisPosition: Vec2 | null = null;
-
-  private wave = 0;
-  private waveEnemiesRemaining = 0;
-  private waveEnemiesSpawned = 0;
-  private waveEnemyCount = 0;
-  private waveActive = false;
-  private spawnTimer = 0;
-  private currentSpawnDelay = 800;
-  private waveStartTimer = 0;
+  // Extracted systems
+  private waveManager!: WaveManager;
+  private objectiveSystem!: ObjectiveSystem;
 
   private gameTime = 0;
 
@@ -114,35 +97,20 @@ export class LocalGameLoop {
     this.renderer = renderer;
     this.ai = new EnemyAI(mapData);
 
-    // Store TARDIS position for delivery checks
-    this.tardisPosition = mapData.tardisPosition;
+    // Initialize wave manager with callbacks
+    this.waveManager = new WaveManager(mapData, {
+      onSpawnEnemy: (request) => this.handleSpawnEnemy(request),
+      onWaveStart: (wave, count) => console.log(`Wave ${wave} started! Enemies: ${count}`),
+      onWaveComplete: (wave) => console.log(`Wave ${wave} complete!`),
+    });
 
-    // Initialize power cells from map data (not renderer, as buildMap may not have been called yet)
-    this.initializePowerCells();
-  }
-
-  private initializePowerCells(): void {
-    // Initialize from mapData cell positions directly
-    const cellPositions = this.mapData.cellPositions;
-
-    for (let i = 0; i < cellPositions.length; i++) {
-      const pos = cellPositions[i];
-      const cellId = `cell_${i}`;
-
-      const cell: PowerCellState = {
-        id: cellId,
-        type: 'powerCell',
-        position: { x: pos.x * TILE_SIZE, y: 0.5, z: pos.y * TILE_SIZE },
-        rotation: 0,
-        velocity: { x: 0, y: 0 },
-        collected: false,
-        delivered: false,
-        carriedBy: null,
-      };
-      this.powerCells.set(cellId, cell);
-    }
-
-    console.log(`Initialized ${this.powerCells.size} power cells at positions:`, cellPositions);
+    // Initialize objective system with callbacks
+    this.objectiveSystem = new ObjectiveSystem(mapData, {
+      onCellPickup: (cellId) => this.handleCellPickup(cellId),
+      onCellDrop: (cellId, position) => this.handleCellDrop(cellId, position),
+      onCellDelivered: (cellNumber, totalCells) => this.handleCellDelivered(cellNumber, totalCells),
+      onObjectiveComplete: () => this.handleObjectiveComplete(),
+    });
   }
 
   spawnLocalPlayer(position: Vec2): void {
@@ -178,12 +146,13 @@ export class LocalGameLoop {
     this.entities.setLocalPlayerId(playerId);
     this.entities.createPlayer(this.player);
 
-    // Start first wave after delay
-    this.waveStartTimer = WAVE_START_DELAY;
+    // Start wave system
+    this.waveManager.start();
   }
 
   update(input: InputState, dt: number): void {
-    if (!this.player || this.player.isDead || this.gameWon) return;
+    const objectiveState = this.objectiveSystem.getState();
+    if (!this.player || this.player.isDead || objectiveState.isComplete) return;
 
     this.gameTime += dt;
 
@@ -198,8 +167,12 @@ export class LocalGameLoop {
     // Update player
     this.updatePlayer(input, dt);
 
-    // Update power cells (pickup, drop, carry, deliver)
-    this.updatePowerCells(input);
+    // Update objective system (power cells, delivery)
+    const playerPos = { x: this.player.position.x, y: this.player.position.z };
+    this.objectiveSystem.update(playerPos, input.interact);
+
+    // Sync carrying state to player (for speed modifier)
+    this.player.carryingCellId = this.objectiveSystem.getCarriedCellId();
 
     // Update enemies
     this.updateEnemies(dt);
@@ -210,13 +183,14 @@ export class LocalGameLoop {
     // Update pickups collision
     this.updatePickups();
 
-    // Wave management
-    this.updateWaves(dt);
+    // Wave management (delegated to WaveManager)
+    this.waveManager.update(dt);
 
     // Update UI
+    const waveState = this.waveManager.getState();
     this.ui.update({
-      wave: this.wave,
-      enemiesLeft: this.waveEnemiesRemaining,
+      wave: waveState.waveNumber,
+      enemiesLeft: waveState.enemiesRemaining,
       score: this.player.score,
       health: this.player.health,
       maxHealth: this.player.maxHealth,
@@ -226,9 +200,9 @@ export class LocalGameLoop {
       powerUps: this.player.powerUps,
       gameTime: this.gameTime,
       // Objective info
-      cellsDelivered: this.cellsDelivered,
-      cellsRequired: POWER_CELLS_REQUIRED,
-      carryingCell: this.player.carryingCellId !== null,
+      cellsDelivered: objectiveState.cellsDelivered,
+      cellsRequired: objectiveState.cellsRequired,
+      carryingCell: objectiveState.isCarryingCell,
     });
   }
 
@@ -320,8 +294,9 @@ export class LocalGameLoop {
     // Shooting (not while dashing, auto-drops cell if carrying)
     if (input.shooting && this.player.ammo > 0 && !this.player.isDashing) {
       // Auto-drop cell when shooting
-      if (this.player.carryingCellId) {
-        this.dropCell();
+      if (this.objectiveSystem.isCarryingCell()) {
+        this.objectiveSystem.forceDropCell(this.player.position);
+        this.player.carryingCellId = null;
       }
       const timeSinceLastShot = this.gameTime - this.player.lastShootTime;
       // Rapid fire power-up reduces cooldown
@@ -497,7 +472,7 @@ export class LocalGameLoop {
     const comboMultiplier = 1 + (this.player.comboCount - 1) * COMBO_SCORE_MULTIPLIER;
     const finalScore = Math.floor(config.score * comboMultiplier);
     this.player.score += finalScore;
-    this.waveEnemiesRemaining--;
+    this.waveManager.onEnemyKilled();
 
     // Vampire power-up: heal on kill
     if (this.player.powerUps.vampire && this.player.powerUps.vampire > this.gameTime) {
@@ -633,50 +608,10 @@ export class LocalGameLoop {
   }
 
   // ============================================================================
-  // Power Cell System
+  // Objective System Callbacks
   // ============================================================================
 
-  private updatePowerCells(input: InputState): void {
-    if (!this.player || this.gameWon) return;
-
-    const playerPos = { x: this.player.position.x, y: this.player.position.z };
-
-    // Check for cell drop (interact key while carrying)
-    if (input.interact && this.player.carryingCellId) {
-      this.dropCell();
-      return;
-    }
-
-    // If carrying a cell, check for TARDIS delivery
-    if (this.player.carryingCellId) {
-      this.checkCellDelivery(playerPos);
-      return;
-    }
-
-    // Not carrying - check for cell pickup
-    for (const [cellId, cell] of this.powerCells) {
-      if (cell.collected || cell.delivered) continue;
-
-      const cellPos = { x: cell.position.x, y: cell.position.z };
-      const dist = distance(playerPos, cellPos);
-
-      if (dist < CELL_PICKUP_RADIUS) {
-        this.pickupCell(cellId);
-        break;
-      }
-    }
-  }
-
-  private pickupCell(cellId: string): void {
-    if (!this.player) return;
-
-    const cell = this.powerCells.get(cellId);
-    if (!cell) return;
-
-    cell.collected = true;
-    cell.carriedBy = this.player.id;
-    this.player.carryingCellId = cellId;
-
+  private handleCellPickup(cellId: string): void {
     // Hide cell from renderer
     this.renderer.removePowerCell(cellId);
 
@@ -684,63 +619,26 @@ export class LocalGameLoop {
     this.ui.showNotification('POWER CELL ACQUIRED!', 0x00ffff);
   }
 
-  private dropCell(): void {
-    if (!this.player || !this.player.carryingCellId) return;
-
-    const cell = this.powerCells.get(this.player.carryingCellId);
-    if (!cell) return;
-
-    // Drop cell at player position
-    cell.position = { ...this.player.position };
-    cell.collected = false;
-    cell.carriedBy = null;
-    this.player.carryingCellId = null;
-
-    // Re-create cell in renderer at new position
-    // Note: For now, dropped cells can't be re-picked up visually
-    // TODO: Add dropped cell rendering
-
+  private handleCellDrop(cellId: string, _position: Vec3): void {
     // Visual feedback
     this.ui.showNotification('CELL DROPPED!', 0xff8800);
+
+    // TODO: Re-create cell in renderer at new position for visual
+    console.log(`Cell ${cellId} dropped`);
   }
 
-  private checkCellDelivery(playerPos: Vec2): void {
-    if (!this.player || !this.player.carryingCellId || !this.tardisPosition) return;
-
-    // Get TARDIS world position
-    const tardisWorldPos = {
-      x: this.tardisPosition.x * TILE_SIZE,
-      y: this.tardisPosition.y * TILE_SIZE,
-    };
-
-    const dist = distance(playerPos, tardisWorldPos);
-
-    if (dist < CELL_DELIVERY_RADIUS) {
-      this.deliverCell();
-    }
-  }
-
-  private deliverCell(): void {
-    if (!this.player || !this.player.carryingCellId) return;
-
-    const cell = this.powerCells.get(this.player.carryingCellId);
-    if (!cell) return;
-
-    // Mark cell as delivered
-    cell.delivered = true;
-    cell.carriedBy = null;
-    this.player.carryingCellId = null;
-    this.cellsDelivered++;
+  private handleCellDelivered(cellNumber: number, totalCells: number): void {
+    if (!this.player) return;
 
     // Update TARDIS power level
-    this.renderer.setTardisPowerLevel(this.cellsDelivered);
+    this.renderer.setTardisPowerLevel(cellNumber);
 
     // Visual feedback
-    this.ui.showNotification(`POWER INCREASING! (${this.cellsDelivered}/${POWER_CELLS_REQUIRED})`, 0x00ffff);
+    this.ui.showNotification(`POWER INCREASING! (${cellNumber}/${totalCells})`, 0x00ffff);
 
     // Callback for UI
     if (this.onCellDelivered) {
-      this.onCellDelivered(this.cellsDelivered, POWER_CELLS_REQUIRED);
+      this.onCellDelivered(cellNumber, totalCells);
     }
 
     // Score bonus for delivery
@@ -750,26 +648,11 @@ export class LocalGameLoop {
     this.renderer.addScreenShake(0.6);
 
     // Spawn mini-horde as penalty/challenge
-    this.spawnMiniHorde();
-
-    // Check for win condition
-    if (this.cellsDelivered >= POWER_CELLS_REQUIRED) {
-      this.triggerVictory();
-    }
+    this.waveManager.addBonusEnemies(MINI_HORDE_SIZE);
   }
 
-  private spawnMiniHorde(): void {
-    // Spawn a small horde of enemies near the TARDIS
-    for (let i = 0; i < MINI_HORDE_SIZE; i++) {
-      this.spawnEnemy();
-      this.waveEnemiesRemaining++;
-    }
-  }
-
-  private triggerVictory(): void {
+  private handleObjectiveComplete(): void {
     if (!this.player) return;
-
-    this.gameWon = true;
 
     // Visual feedback
     this.ui.showNotification('STRATEGIC RETREAT!', 0x00ff00);
@@ -778,7 +661,7 @@ export class LocalGameLoop {
     // Trigger win callback after a short delay for effect
     setTimeout(() => {
       if (this.onGameWin && this.player) {
-        this.onGameWin(this.player.score, this.wave, this.player.maxCombo);
+        this.onGameWin(this.player.score, this.waveManager.getWaveNumber(), this.player.maxCombo);
       }
     }, 1500);
   }
@@ -831,7 +714,7 @@ export class LocalGameLoop {
       );
 
       // Move enemy (speed scales with wave)
-      const speed = config.speed * getEnemySpeedMultiplier(this.wave);
+      const speed = config.speed * getEnemySpeedMultiplier(this.waveManager.getWaveNumber());
       let newX = enemy.position.x + moveDir.x * speed * dtSeconds;
       let newZ = enemy.position.z + moveDir.y * speed * dtSeconds;
 
@@ -881,7 +764,7 @@ export class LocalGameLoop {
             this.renderer.spawnBloodDecal(this.player.position.x, this.player.position.z, 2);
             // Trigger death callback
             if (this.onPlayerDeath) {
-              this.onPlayerDeath(this.player.score, this.wave, this.player.maxCombo);
+              this.onPlayerDeath(this.player.score, this.waveManager.getWaveNumber(), this.player.maxCombo);
             }
           }
         }
@@ -895,70 +778,26 @@ export class LocalGameLoop {
     }
   }
 
-  private updateWaves(dt: number): void {
-    // Wave start delay
-    if (this.waveStartTimer > 0) {
-      this.waveStartTimer -= dt;
-      if (this.waveStartTimer <= 0) {
-        this.startNextWave();
-      }
-      return;
-    }
+  // ============================================================================
+  // Wave System Handlers (callback from WaveManager)
+  // ============================================================================
 
-    if (!this.waveActive) return;
-
-    // Spawn enemies
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0 && this.waveEnemiesSpawned < this.waveEnemyCount) {
-      this.spawnEnemy();
-      this.spawnTimer = this.currentSpawnDelay;
-    }
-
-    // Check wave complete
-    if (this.waveEnemiesRemaining <= 0 && this.waveEnemiesSpawned >= this.waveEnemyCount) {
-      this.waveActive = false;
-      this.waveStartTimer = WAVE_START_DELAY;
-    }
-  }
-
-  private startNextWave(): void {
-    this.wave++;
-    const config = getWaveConfig(this.wave);
-
-    this.waveEnemyCount = config.enemyCount;
-    this.waveEnemiesRemaining = config.enemyCount;
-    this.waveEnemiesSpawned = 0;
-    this.currentSpawnDelay = config.spawnDelay;
-    this.spawnTimer = 0;
-    this.waveActive = true;
-
-    console.log(`Wave ${this.wave} started! Enemies: ${config.enemyCount}`);
-  }
-
-  private spawnEnemy(): void {
-    if (this.mapData.enemySpawnPoints.length === 0) return;
-
-    const config = getWaveConfig(this.wave);
-    const enemyType = weightedRandom(
-      config.types.map((t) => ({ item: t.type, weight: t.weight }))
-    );
-
-    const spawnPoint = randomChoice(this.mapData.enemySpawnPoints);
-    const enemyConfig = ENEMY_CONFIGS[enemyType];
+  private handleSpawnEnemy(request: SpawnRequest): void {
+    const enemyConfig = ENEMY_CONFIGS[request.enemyType];
 
     const enemy: EnemyState = {
       id: generateId(),
       type: 'enemy',
       position: {
-        x: spawnPoint.x * TILE_SIZE,
+        x: request.spawnPoint.x * TILE_SIZE,
         y: 0.5,
-        z: spawnPoint.y * TILE_SIZE,
+        z: request.spawnPoint.y * TILE_SIZE,
       },
       rotation: 0,
       velocity: { x: 0, y: 0 },
       health: enemyConfig.health,
       maxHealth: enemyConfig.health,
-      enemyType,
+      enemyType: request.enemyType,
       targetId: this.player?.id ?? null,
       state: 'idle',
       knockbackVelocity: { x: 0, y: 0 },
@@ -966,7 +805,6 @@ export class LocalGameLoop {
 
     this.enemies.set(enemy.id, enemy);
     this.entities.createEnemy(enemy);
-    this.waveEnemiesSpawned++;
   }
 
   private isWalkable(worldX: number, worldZ: number): boolean {
