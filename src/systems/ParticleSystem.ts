@@ -1,0 +1,210 @@
+import * as THREE from 'three';
+import type { Vec3, EnemyType } from '@shared/types';
+import { BLOOD_COLORS } from '@shared/constants';
+
+// ============================================================================
+// Particle System - Handles blood burst particles and decals
+// Single Responsibility: Manage particle lifecycle and rendering
+// ============================================================================
+
+interface ParticleData {
+  index: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  lifetime: number;
+  maxLifetime: number;
+  color: THREE.Color;
+  baseScale: number;
+}
+
+export class ParticleSystem {
+  private readonly MAX_PARTICLES = 200;
+  private readonly MAX_BLOOD_DECALS = 100;
+
+  private particles: ParticleData[] = [];
+  private particleInstances!: THREE.InstancedMesh;
+  private freeParticleIndices: number[] = [];
+  private dummyMatrix = new THREE.Matrix4();
+  private dummyColor = new THREE.Color();
+
+  private bloodDecals: THREE.Mesh[] = [];
+
+  private readonly scene: THREE.Scene;
+
+  constructor(scene: THREE.Scene) {
+    this.scene = scene;
+    this.initParticleSystem();
+  }
+
+  // ============================================================================
+  // Initialization
+  // ============================================================================
+
+  private initParticleSystem(): void {
+    // Single geometry for all particles
+    const geometry = new THREE.SphereGeometry(0.08, 4, 4);
+
+    // Simple material - color will be set per instance
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 1,
+    });
+
+    // Create instanced mesh - ONE draw call for all particles
+    this.particleInstances = new THREE.InstancedMesh(geometry, material, this.MAX_PARTICLES);
+    this.particleInstances.frustumCulled = false;
+    this.particleInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    // Initialize all instances as hidden (scale 0) and track free indices
+    const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_PARTICLES; i++) {
+      this.particleInstances.setMatrixAt(i, hiddenMatrix);
+      this.particleInstances.setColorAt(i, new THREE.Color(0x000000));
+      this.freeParticleIndices.push(i);
+    }
+
+    this.particleInstances.instanceMatrix.needsUpdate = true;
+    if (this.particleInstances.instanceColor) {
+      this.particleInstances.instanceColor.needsUpdate = true;
+    }
+    this.scene.add(this.particleInstances);
+  }
+
+  // ============================================================================
+  // Public API
+  // ============================================================================
+
+  /**
+   * Spawn a burst of blood particles at position
+   */
+  spawnBloodBurst(position: Vec3, enemyType: EnemyType, count: number = 15): void {
+    const colorHex = BLOOD_COLORS[enemyType];
+    this.dummyColor.setHex(colorHex);
+
+    for (let i = 0; i < count; i++) {
+      // Get free particle index
+      if (this.freeParticleIndices.length === 0) continue;
+      const index = this.freeParticleIndices.pop()!;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 5;
+      const upward = 2 + Math.random() * 4;
+
+      this.particles.push({
+        index,
+        position: new THREE.Vector3(position.x, position.y, position.z),
+        velocity: new THREE.Vector3(
+          Math.cos(angle) * speed,
+          upward,
+          Math.sin(angle) * speed
+        ),
+        lifetime: 0,
+        maxLifetime: 0.4 + Math.random() * 0.3,
+        color: this.dummyColor.clone(),
+        baseScale: 0.8 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  /**
+   * Spawn a blood decal on the ground
+   */
+  spawnBloodDecal(x: number, z: number, size: number = 1): void {
+    // Recycle oldest if at limit
+    if (this.bloodDecals.length >= this.MAX_BLOOD_DECALS) {
+      const oldest = this.bloodDecals.shift()!;
+      this.scene.remove(oldest);
+      oldest.geometry.dispose();
+      (oldest.material as THREE.Material).dispose();
+    }
+
+    const geom = new THREE.CircleGeometry(0.3 * size + Math.random() * 0.2, 8);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x440000 + Math.floor(Math.random() * 0x220000),
+      transparent: true,
+      opacity: 0.6,
+    });
+    const decal = new THREE.Mesh(geom, mat);
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.set(
+      x + (Math.random() - 0.5) * 0.5,
+      0.02,
+      z + (Math.random() - 0.5) * 0.5
+    );
+    decal.userData.mapObject = true;
+
+    this.scene.add(decal);
+    this.bloodDecals.push(decal);
+  }
+
+  /**
+   * Update all particles - call every frame
+   */
+  update(dt: number): void {
+    const gravity = -20;
+    let needsUpdate = false;
+
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.lifetime += dt;
+
+      if (p.lifetime >= p.maxLifetime) {
+        // Hide this instance (scale 0)
+        this.dummyMatrix.makeScale(0, 0, 0);
+        this.particleInstances.setMatrixAt(p.index, this.dummyMatrix);
+
+        // Return index to free pool
+        this.freeParticleIndices.push(p.index);
+        this.particles.splice(i, 1);
+        needsUpdate = true;
+        continue;
+      }
+
+      // Physics
+      p.velocity.y += gravity * dt;
+      p.position.addScaledVector(p.velocity, dt);
+
+      // Scale down as fade effect (since instanceColor doesn't support alpha)
+      const alpha = 1 - p.lifetime / p.maxLifetime;
+      const scale = (alpha * 0.8 + 0.2) * p.baseScale;
+
+      // Update instance matrix (position + scale)
+      this.dummyMatrix.makeScale(scale, scale, scale);
+      this.dummyMatrix.setPosition(p.position);
+      this.particleInstances.setMatrixAt(p.index, this.dummyMatrix);
+
+      // Darken color as it fades (simulate transparency)
+      this.dummyColor.copy(p.color).multiplyScalar(alpha);
+      this.particleInstances.setColorAt(p.index, this.dummyColor);
+
+      needsUpdate = true;
+    }
+
+    // Only update GPU buffers if something changed
+    if (needsUpdate) {
+      this.particleInstances.instanceMatrix.needsUpdate = true;
+      if (this.particleInstances.instanceColor) {
+        this.particleInstances.instanceColor.needsUpdate = true;
+      }
+    }
+  }
+
+  /**
+   * Clear all decals (called on map rebuild)
+   */
+  clearDecals(): void {
+    for (const decal of this.bloodDecals) {
+      this.scene.remove(decal);
+      decal.geometry.dispose();
+      (decal.material as THREE.Material).dispose();
+    }
+    this.bloodDecals = [];
+  }
+
+  /**
+   * Get active particle count (for debugging)
+   */
+  getActiveParticleCount(): number {
+    return this.particles.length;
+  }
+}
