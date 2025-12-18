@@ -256,15 +256,17 @@ Better:   Game → GameLogic → EventBus → Renderer
    - [x] Integrated into LocalGameLoop (emitting events alongside direct calls)
    - Events: screenShake, bloodBurst, hitStop, enemyHit, enemyKilled, playerHit, playerDied, cellPickedUp, cellDropped, cellDelivered, objectiveComplete, waveStarted, waveCompleted, gameOver
 
-### Phase 2: Refactor God Classes
+### Phase 2: Refactor God Classes - COMPLETED
 
-3. **Split EntityManager**
-   - Extract `EntityFactory` (mesh creation)
-   - Extract `EntityAnimator` (visual effects)
+3. **Split EntityManager** - DONE
+   - [x] Extract `EntityFactory` (578 lines - mesh creation)
+   - [x] Extract `EntityAnimator` (439 lines - visual effects)
+   - EntityManager reduced from 1,125 to 268 lines (76% reduction)
 
-4. **Split Renderer**
-   - Extract `MapRenderer`
-   - Extract `EffectsManager`
+4. **Split Renderer** - DONE
+   - [x] Extract `MapRenderer` (661 lines - map, torches, TARDIS, power cells)
+   - [x] EffectsManager skipped - ParticleSystem already handles effects, remaining code minimal
+   - Renderer reduced from 1,106 to 551 lines (50% reduction)
 
 ### Phase 3: Polish
 
@@ -278,15 +280,18 @@ Better:   Game → GameLogic → EventBus → Renderer
 
 | File | Lines | Status |
 |------|-------|--------|
-| EntityManager.ts | 1,125 | Needs splitting |
-| Renderer.ts | 1,106 | Needs splitting |
 | UIManager.ts | 982 | Needs splitting |
 | LocalGameLoop.ts | 825 | Acceptable after recent refactor |
+| MapRenderer.ts | 661 | Good (extracted from Renderer) |
+| EntityFactory.ts | 578 | Good (extracted from EntityManager) |
+| Renderer.ts | 551 | Good (50% reduction after extraction) |
 | EnemyAI.ts | 526 | Acceptable |
 | TardisFactory.ts | 492 | Acceptable (focused) |
 | MenuRenderer.ts | 480 | Acceptable |
 | MapDecorations.ts | 461 | Acceptable (focused) |
+| EntityAnimator.ts | 439 | Good (extracted from EntityManager) |
 | MapGenerator.ts | 432 | Acceptable |
+| EntityManager.ts | 268 | Good (76% reduction after extraction) |
 | ObjectiveSystem.ts | 252 | Good (clean extraction) |
 | ParticleSystem.ts | 210 | Good (clean extraction) |
 | WaveManager.ts | 168 | Good (clean extraction) |
