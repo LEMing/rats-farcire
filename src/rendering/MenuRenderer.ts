@@ -99,7 +99,16 @@ export class MenuRenderer {
   }
 
   private cleanupRenderer(): void {
-    // Remove canvas from DOM first (this is safe)
+    // Dispose renderer to release WebGL context
+    try {
+      if (this.renderer) {
+        this.renderer.dispose();
+      }
+    } catch {
+      // Ignore dispose errors
+    }
+
+    // Remove canvas from DOM
     try {
       if (this.canvas && this.container.contains(this.canvas)) {
         this.container.removeChild(this.canvas);
@@ -109,7 +118,6 @@ export class MenuRenderer {
     }
     this.canvas = null;
 
-    // Clear renderer reference (don't call dispose on failed init)
     // @ts-expect-error - clearing internal reference
     this.renderer = null;
   }
