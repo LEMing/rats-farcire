@@ -1,7 +1,7 @@
 import type { InputState } from '@shared/types';
 
 // ============================================================================
-// Input Manager - WASD + Mouse
+// Input Manager - WASD + Mouse (layout-independent using key codes)
 // ============================================================================
 
 export class InputManager {
@@ -12,7 +12,7 @@ export class InputManager {
   private sequence = 0;
 
   constructor(container: HTMLElement) {
-    // Keyboard events
+    // Keyboard events - use code for layout independence
     window.addEventListener('keydown', this.onKeyDown.bind(this));
     window.addEventListener('keyup', this.onKeyUp.bind(this));
 
@@ -21,20 +21,23 @@ export class InputManager {
     container.addEventListener('mousedown', this.onMouseDown.bind(this));
     container.addEventListener('mouseup', this.onMouseUp.bind(this));
 
-    // Prevent default for game keys
+    // Prevent default for game keys (using code)
     window.addEventListener('keydown', (e) => {
-      if (['w', 'a', 's', 'd', 'r', 'e', ' '].includes(e.key.toLowerCase())) {
+      const gameCodes = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'Space',
+                         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+      if (gameCodes.includes(e.code)) {
         e.preventDefault();
       }
     });
   }
 
   private onKeyDown(e: KeyboardEvent): void {
-    this.keys.add(e.key.toLowerCase());
+    // Use e.code for physical key position (works with any layout)
+    this.keys.add(e.code);
   }
 
   private onKeyUp(e: KeyboardEvent): void {
-    this.keys.delete(e.key.toLowerCase());
+    this.keys.delete(e.code);
   }
 
   private onMouseMove(e: MouseEvent): void {
@@ -77,13 +80,14 @@ export class InputManager {
 
     // Get raw WASD input (relative to aim direction)
     // W = forward (toward aim), S = backward, A = strafe left, D = strafe right
+    // Using key codes for layout independence
     let forward = 0;
     let strafe = 0;
 
-    if (this.keys.has('w') || this.keys.has('arrowup')) forward += 1;
-    if (this.keys.has('s') || this.keys.has('arrowdown')) forward -= 1;
-    if (this.keys.has('a') || this.keys.has('arrowleft')) strafe -= 1;
-    if (this.keys.has('d') || this.keys.has('arrowright')) strafe += 1;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) forward += 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) forward -= 1;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) strafe -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) strafe += 1;
 
     // Calculate movement relative to aim direction
     // Forward vector is (aimX, aimY), right vector is perpendicular
@@ -109,14 +113,14 @@ export class InputManager {
       aimX: normalizedAimX,
       aimY: normalizedAimY,
       shooting: this.mouseDown,
-      reload: this.keys.has('r'),
-      interact: this.keys.has('e'),
-      dash: this.keys.has(' '), // Space bar for dash
+      reload: this.keys.has('KeyR'),
+      interact: this.keys.has('KeyE'),
+      dash: this.keys.has('Space'),
       sequence: this.sequence,
     };
   }
 
-  isKeyDown(key: string): boolean {
-    return this.keys.has(key.toLowerCase());
+  isKeyDown(code: string): boolean {
+    return this.keys.has(code);
   }
 }
