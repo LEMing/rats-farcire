@@ -131,7 +131,6 @@ export class MapRenderer {
           const wallMat = wallBaseMat.clone();
           wallMat.transparent = true;
           wallMat.opacity = this.WALL_OPACITY_MAX;
-          wallMat.depthWrite = false; // Prevent overlapping artifacts between transparent walls
 
           const wallMesh = new THREE.Mesh(wallGeom, wallMat);
           wallMesh.position.set(worldX, TILE_SIZE / 2, worldZ);
