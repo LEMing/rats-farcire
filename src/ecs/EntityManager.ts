@@ -46,6 +46,13 @@ export class EntityManager {
     lastHealth: number;      // Track health for showing damage
   }> = new Map();
 
+  // Player recoil state
+  private playerRecoil = {
+    offset: 0,      // Current backward offset
+    tilt: 0,        // Current tilt angle
+    recovery: 0.15, // How fast recoil recovers
+  };
+
   // Shared speech bubble geometry/material
   private bubbleGeometry!: THREE.PlaneGeometry;
   private bubbleMaterial!: THREE.MeshBasicMaterial;
@@ -699,7 +706,7 @@ export class EntityManager {
         }
       }
 
-      // Muzzle flash fade
+      // Player updates: muzzle flash fade and recoil
       if (entity.mesh.userData.entityType === 'player') {
         const flash = entity.mesh.getObjectByName('muzzleFlash') as THREE.Mesh;
         if (flash) {
@@ -709,6 +716,37 @@ export class EntityManager {
           }
           // Billboard flash to camera
           flash.quaternion.copy(this.renderer.camera.quaternion);
+        }
+
+        // Apply recoil animation
+        if (this.playerRecoil.offset > 0.01 || this.playerRecoil.tilt > 0.01) {
+          // Calculate backward offset based on player rotation
+          const backX = -Math.sin(entity.mesh.rotation.y) * this.playerRecoil.offset;
+          const backZ = -Math.cos(entity.mesh.rotation.y) * this.playerRecoil.offset;
+
+          // Apply offset to all children (the Dalek parts)
+          entity.mesh.children.forEach(child => {
+            if (child.name !== 'muzzleFlash' && child.name !== 'targetingLaser') {
+              child.position.x = backX;
+              child.position.z = backZ;
+            }
+          });
+
+          // Apply tilt (pitch back)
+          entity.mesh.rotation.x = -this.playerRecoil.tilt;
+
+          // Recover from recoil
+          this.playerRecoil.offset *= (1 - this.playerRecoil.recovery);
+          this.playerRecoil.tilt *= (1 - this.playerRecoil.recovery);
+        } else {
+          // Reset position when recoil is done
+          entity.mesh.children.forEach(child => {
+            if (child.name !== 'muzzleFlash' && child.name !== 'targetingLaser') {
+              child.position.x = 0;
+              child.position.z = 0;
+            }
+          });
+          entity.mesh.rotation.x = 0;
         }
       }
 
@@ -875,8 +913,12 @@ export class EntityManager {
       flash.rotation.z = Math.random() * Math.PI * 2;
     }
 
+    // Trigger recoil animation
+    this.playerRecoil.offset = 0.25; // Kick back
+    this.playerRecoil.tilt = 0.08;   // Tilt back
+
     // Create temporary point light for muzzle flash
-    const light = new THREE.PointLight(0xffaa44, 2, 8);
+    const light = new THREE.PointLight(0xffaa44, 3, 10);
     light.position.copy(entity.mesh.position);
     light.position.y += 0.5;
 
@@ -888,9 +930,9 @@ export class EntityManager {
     this.renderer.addToScene(light);
 
     // Fade out light quickly
-    let intensity = 2;
+    let intensity = 3;
     const fadeLight = () => {
-      intensity *= 0.7;
+      intensity *= 0.65;
       light.intensity = intensity;
       if (intensity > 0.05) {
         requestAnimationFrame(fadeLight);
