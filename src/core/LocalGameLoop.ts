@@ -47,6 +47,7 @@ import {
   distance,
   circleCollision,
   angleBetween,
+  isWalkable,
 } from '@shared/utils';
 import { EntityManager } from '../ecs/EntityManager';
 import { UIManager } from '../ui/UIManager';
@@ -287,10 +288,10 @@ export class LocalGameLoop {
     newZ = this.player.position.z + newVelZ * dtSeconds;
 
     // Collision with walls
-    if (!this.isWalkable(newX, this.player.position.z)) {
+    if (!isWalkable(this.mapData, newX, this.player.position.z)) {
       newX = this.player.position.x;
     }
-    if (!this.isWalkable(this.player.position.x, newZ)) {
+    if (!isWalkable(this.mapData, this.player.position.x, newZ)) {
       newZ = this.player.position.z;
     }
 
@@ -393,7 +394,7 @@ export class LocalGameLoop {
       }
 
       // Check wall collision
-      if (!this.isWalkable(proj.position.x, proj.position.z)) {
+      if (!isWalkable(this.mapData, proj.position.x, proj.position.z)) {
         toRemove.push(id);
         continue;
       }
@@ -746,11 +747,11 @@ export class LocalGameLoop {
         let kbZ = enemy.position.z + enemy.knockbackVelocity.y * dtSeconds;
 
         // Wall collision for knockback
-        if (!this.isWalkable(kbX, enemy.position.z)) {
+        if (!isWalkable(this.mapData, kbX, enemy.position.z)) {
           kbX = enemy.position.x;
           enemy.knockbackVelocity.x = 0;
         }
-        if (!this.isWalkable(enemy.position.x, kbZ)) {
+        if (!isWalkable(this.mapData, enemy.position.x, kbZ)) {
           kbZ = enemy.position.z;
           enemy.knockbackVelocity.y = 0;
         }
@@ -780,10 +781,10 @@ export class LocalGameLoop {
       let newZ = enemy.position.z + moveDir.y * speed * dtSeconds;
 
       // Collision with walls
-      if (!this.isWalkable(newX, enemy.position.z)) {
+      if (!isWalkable(this.mapData, newX, enemy.position.z)) {
         newX = enemy.position.x;
       }
-      if (!this.isWalkable(enemy.position.x, newZ)) {
+      if (!isWalkable(this.mapData, enemy.position.x, newZ)) {
         newZ = enemy.position.z;
       }
 
@@ -887,19 +888,4 @@ export class LocalGameLoop {
     this.entities.createEnemy(enemy);
   }
 
-  private isWalkable(worldX: number, worldZ: number): boolean {
-    const tileX = Math.floor(worldX / TILE_SIZE);
-    const tileY = Math.floor(worldZ / TILE_SIZE);
-
-    if (
-      tileX < 0 ||
-      tileX >= this.mapData.width ||
-      tileY < 0 ||
-      tileY >= this.mapData.height
-    ) {
-      return false;
-    }
-
-    return this.mapData.tiles[tileY][tileX].walkable;
-  }
 }

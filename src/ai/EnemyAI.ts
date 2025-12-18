@@ -1,5 +1,5 @@
 import type { MapData, EnemyState, Vec2, Vec3 } from '@shared/types';
-import { normalize, distance } from '@shared/utils';
+import { normalize, distance, isWalkable } from '@shared/utils';
 import { TILE_SIZE, ENEMY_CONFIGS } from '@shared/constants';
 
 // ============================================================================
@@ -264,32 +264,13 @@ export class EnemyAI {
       const checkX = position.x + dir.x * checkRadius;
       const checkY = position.y + dir.y * checkRadius;
 
-      if (!this.isWalkable(checkX, checkY)) {
+      if (!isWalkable(this.mapData, checkX, checkY)) {
         avoidX -= dir.x;
         avoidY -= dir.y;
       }
     }
 
     return normalize({ x: avoidX, y: avoidY });
-  }
-
-  /**
-   * Check if world position is walkable
-   */
-  private isWalkable(worldX: number, worldY: number): boolean {
-    const tileX = Math.floor(worldX / TILE_SIZE);
-    const tileY = Math.floor(worldY / TILE_SIZE);
-
-    if (
-      tileX < 0 ||
-      tileX >= this.mapData.width ||
-      tileY < 0 ||
-      tileY >= this.mapData.height
-    ) {
-      return false;
-    }
-
-    return this.mapData.tiles[tileY][tileX].walkable;
   }
 
   /**

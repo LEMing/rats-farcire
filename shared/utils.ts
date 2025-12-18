@@ -1,4 +1,5 @@
-import type { Vec2, Vec3, GameState, SerializedGameState } from './types';
+import type { Vec2, Vec3, GameState, SerializedGameState, MapData } from './types';
+import { TILE_SIZE } from './constants';
 
 // ============================================================================
 // Math Utilities
@@ -191,4 +192,31 @@ export function generateId(): string {
   return 'xxxx-xxxx-xxxx'.replace(/x/g, () =>
     Math.floor(Math.random() * 16).toString(16)
   );
+}
+
+// ============================================================================
+// Map Utilities
+// ============================================================================
+
+/**
+ * Check if a world position is walkable on the map
+ * @param mapData - The map data containing tiles
+ * @param worldX - World X coordinate
+ * @param worldZ - World Z coordinate (using Z for 3D world, Y for 2D tile grid)
+ * @returns true if the position is walkable
+ */
+export function isWalkable(mapData: MapData, worldX: number, worldZ: number): boolean {
+  const tileX = Math.floor(worldX / TILE_SIZE);
+  const tileY = Math.floor(worldZ / TILE_SIZE);
+
+  if (
+    tileX < 0 ||
+    tileX >= mapData.width ||
+    tileY < 0 ||
+    tileY >= mapData.height
+  ) {
+    return false;
+  }
+
+  return mapData.tiles[tileY][tileX].walkable;
 }

@@ -92,22 +92,6 @@ export interface IGameLoop {
 }
 
 /**
- * Network client interface for multiplayer
- */
-export interface INetworkClient {
-  connect(): void;
-  join(playerName: string): void;
-  sendInput(input: InputState): void;
-
-  // Event callbacks
-  onConnected: (() => void) | null;
-  onJoined: ((playerId: string, mapData: MapData) => void) | null;
-  onStateUpdate: ((state: unknown) => void) | null;
-  onPong: ((ping: number) => void) | null;
-  onDisconnected: (() => void) | null;
-}
-
-/**
  * Configuration options for the Game
  */
 export interface GameConfig {

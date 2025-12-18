@@ -42,6 +42,7 @@ import {
   angleBetween,
   serializeGameState,
   weightedRandom,
+  isWalkable,
 } from '../shared/utils';
 import { ServerMapGenerator } from './ServerMapGenerator';
 
@@ -208,10 +209,10 @@ export class GameRoom {
     let newZ = state.position.z + newVelZ * dtSeconds;
 
     // Collision with walls
-    if (!this.isWalkable(newX, state.position.z)) {
+    if (!isWalkable(this.mapData, newX, state.position.z)) {
       newX = state.position.x;
     }
-    if (!this.isWalkable(state.position.x, newZ)) {
+    if (!isWalkable(this.mapData, state.position.x, newZ)) {
       newZ = state.position.z;
     }
 
@@ -291,7 +292,7 @@ export class GameRoom {
       }
 
       // Wall collision
-      if (!this.isWalkable(proj.position.x, proj.position.z)) {
+      if (!isWalkable(this.mapData, proj.position.x, proj.position.z)) {
         toRemove.push(id);
         continue;
       }
@@ -478,10 +479,10 @@ export class GameRoom {
       let newZ = enemy.position.z + moveNorm.y * speed * dtSeconds;
 
       // Collision
-      if (!this.isWalkable(newX, enemy.position.z)) {
+      if (!isWalkable(this.mapData, newX, enemy.position.z)) {
         newX = enemy.position.x;
       }
-      if (!this.isWalkable(enemy.position.x, newZ)) {
+      if (!isWalkable(this.mapData, enemy.position.x, newZ)) {
         newZ = enemy.position.z;
       }
 
@@ -595,22 +596,6 @@ export class GameRoom {
 
     this.enemies.set(enemy.id, enemy);
     this.waveEnemiesSpawned++;
-  }
-
-  private isWalkable(worldX: number, worldZ: number): boolean {
-    const tileX = Math.floor(worldX / TILE_SIZE);
-    const tileY = Math.floor(worldZ / TILE_SIZE);
-
-    if (
-      tileX < 0 ||
-      tileX >= this.mapData.width ||
-      tileY < 0 ||
-      tileY >= this.mapData.height
-    ) {
-      return false;
-    }
-
-    return this.mapData.tiles[tileY][tileX].walkable;
   }
 
   private broadcastState(): void {
