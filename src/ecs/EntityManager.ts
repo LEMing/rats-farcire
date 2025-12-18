@@ -718,34 +718,24 @@ export class EntityManager {
           flash.quaternion.copy(this.renderer.camera.quaternion);
         }
 
-        // Apply recoil animation
+        // Apply recoil animation - use scale pulse instead of position offset
         if (this.playerRecoil.offset > 0.01 || this.playerRecoil.tilt > 0.01) {
-          // Calculate backward offset based on player rotation
-          const backX = -Math.sin(entity.mesh.rotation.y) * this.playerRecoil.offset;
-          const backZ = -Math.cos(entity.mesh.rotation.y) * this.playerRecoil.offset;
+          // Squash and stretch effect for recoil
+          const recoilScale = 1 - this.playerRecoil.offset * 0.3;
+          const stretchScale = 1 + this.playerRecoil.offset * 0.15;
 
-          // Apply offset to all children (the Dalek parts)
-          entity.mesh.children.forEach(child => {
-            if (child.name !== 'muzzleFlash' && child.name !== 'targetingLaser') {
-              child.position.x = backX;
-              child.position.z = backZ;
-            }
-          });
+          // Apply squash (compress in Z, stretch in Y)
+          entity.mesh.scale.set(stretchScale, stretchScale, recoilScale);
 
-          // Apply tilt (pitch back)
+          // Apply tilt (pitch back slightly)
           entity.mesh.rotation.x = -this.playerRecoil.tilt;
 
           // Recover from recoil
           this.playerRecoil.offset *= (1 - this.playerRecoil.recovery);
           this.playerRecoil.tilt *= (1 - this.playerRecoil.recovery);
         } else {
-          // Reset position when recoil is done
-          entity.mesh.children.forEach(child => {
-            if (child.name !== 'muzzleFlash' && child.name !== 'targetingLaser') {
-              child.position.x = 0;
-              child.position.z = 0;
-            }
-          });
+          // Reset scale and rotation when recoil is done
+          entity.mesh.scale.set(1, 1, 1);
           entity.mesh.rotation.x = 0;
         }
       }
