@@ -7,6 +7,7 @@ import {
   POWER_CELLS_REQUIRED,
 } from '@shared/constants';
 import { SeededRandom } from '@shared/utils';
+import { debug } from '../utils/debug';
 
 // ============================================================================
 // Procedural Map Generator
@@ -66,7 +67,7 @@ export class MapGenerator {
 
   private assignRoomTypes(): void {
     if (this.rooms.length < 5) {
-      console.warn('Not enough rooms for objective system');
+      debug.warn('Not enough rooms for objective system');
       return;
     }
 

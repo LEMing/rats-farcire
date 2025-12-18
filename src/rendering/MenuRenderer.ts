@@ -20,6 +20,7 @@ import {
 import { MenuConfig } from '../menu/config/MenuConfig';
 import { ProceduralMaterials } from '../menu/materials/ProceduralMaterials';
 import { MeatballFactory, FloatingMeatball } from '../menu/factories/MeatballFactory';
+import { debug } from '../utils/debug';
 
 // ============================================================================
 // Menu Renderer - Orchestrates the 3D animated menu scene
@@ -63,9 +64,9 @@ export class MenuRenderer {
       this.setupPostProcessing();
 
       this.initialized = true;
-      console.log('Menu renderer initialized');
+      debug.log('Menu renderer initialized');
     } catch (e) {
-      console.warn('Menu renderer initialization failed, skipping animated background:', e);
+      debug.warn('Menu renderer initialization failed, skipping animated background:', e);
       // Clean up any partial initialization
       this.cleanupRenderer();
       this.initialized = false;
@@ -263,7 +264,7 @@ export class MenuRenderer {
 
       this.postProcessing.outputNode = withVignette;
     } catch (e) {
-      console.warn('Menu post-processing failed:', e);
+      debug.warn('Menu post-processing failed:', e);
     }
   }
 

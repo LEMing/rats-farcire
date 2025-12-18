@@ -6,6 +6,7 @@ import type {
   MapData,
 } from '@shared/types';
 import { SERVER_PORT } from '@shared/constants';
+import { debug } from '../utils/debug';
 
 // Server URL - injected by Vite at build time
 declare const __WS_SERVER_URL__: string | undefined;
@@ -49,28 +50,28 @@ export class NetworkClient {
       this.socket = new WebSocket(wsUrl);
 
       this.socket.onopen = () => {
-        console.log('WebSocket connected');
+        debug.log('WebSocket connected');
         this.connected = true;
         this.startPing();
         this.onConnected?.();
       };
 
       this.socket.onclose = () => {
-        console.log('WebSocket disconnected');
+        debug.log('WebSocket disconnected');
         this.connected = false;
         this.stopPing();
         this.onDisconnected?.();
       };
 
       this.socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        debug.error('WebSocket error:', error);
       };
 
       this.socket.onmessage = (event) => {
         this.handleMessage(event.data);
       };
     } catch (error) {
-      console.error('Failed to connect:', error);
+      debug.error('Failed to connect:', error);
     }
   }
 
@@ -127,7 +128,7 @@ export class NetworkClient {
           break;
       }
     } catch (error) {
-      console.error('Failed to parse message:', error);
+      debug.error('Failed to parse message:', error);
     }
   }
 

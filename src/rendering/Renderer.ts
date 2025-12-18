@@ -21,6 +21,7 @@ import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 import { TargetingLaserMaterial } from './LaserMaterial';
 import { MapRenderer } from './MapRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
+import { debug } from '../utils/debug';
 
 // ============================================================================
 // Three.js Renderer with WebGPU and Isometric Camera
@@ -136,9 +137,9 @@ export class Renderer {
       });
 
       this.initialized = true;
-      console.log('WebGPU Renderer initialized');
+      debug.log('WebGPU Renderer initialized');
     } catch (e) {
-      console.error('Renderer initialization failed:', e);
+      debug.error('Renderer initialization failed:', e);
       this.cleanupRenderer();
       throw new Error('Failed to initialize WebGPU/WebGL renderer. Please use a modern browser with WebGPU or WebGL2 support.');
     }
@@ -176,9 +177,9 @@ export class Renderer {
 
       this.postProcessing.outputNode = withVignette;
 
-      console.log('Post-processing initialized');
+      debug.log('Post-processing initialized');
     } catch (e) {
-      console.warn('Post-processing setup failed, using standard rendering:', e);
+      debug.warn('Post-processing setup failed, using standard rendering:', e);
       this.usePostProcessing = false;
     }
   }

@@ -1,9 +1,14 @@
 import { Game } from './core/Game';
 import { MenuRenderer } from './rendering/MenuRenderer';
+import { debug } from './utils/debug';
+import { errorHandler } from './utils/errorHandler';
 
 // ============================================================================
 // Entry Point
 // ============================================================================
+
+// Initialize global error handling
+errorHandler.init();
 
 const game = new Game();
 let menuRenderer: MenuRenderer | null = null;
@@ -17,7 +22,7 @@ async function initMenuBackground() {
 }
 
 // Start menu background immediately
-initMenuBackground().catch(console.error);
+initMenuBackground().catch(debug.error);
 
 // Menu button handlers
 const menuScreen = document.getElementById('menu-screen')!;
@@ -64,4 +69,4 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 // Debug: expose game to console
 (window as unknown as { game: Game }).game = game;
 
-console.log('Rats Farcire loaded!');
+debug.log('Rats Farcire loaded!');

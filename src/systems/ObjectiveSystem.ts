@@ -6,6 +6,7 @@ import {
   CELL_DELIVERY_RADIUS,
 } from '@shared/constants';
 import { distance } from '@shared/utils';
+import { debug } from '../utils/debug';
 
 // ============================================================================
 // Objective System - Handles power cell collection and TARDIS escape
@@ -172,7 +173,7 @@ export class ObjectiveSystem {
       this.powerCells.set(cellId, cell);
     }
 
-    console.log(`ObjectiveSystem: Initialized ${this.powerCells.size} power cells`);
+    debug.log(`ObjectiveSystem: Initialized ${this.powerCells.size} power cells`);
   }
 
   private checkPickup(playerPos: Vec2): void {

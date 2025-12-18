@@ -5,6 +5,7 @@ import { MapGenerator } from '../map/MapGenerator';
 import { NetworkClient } from '../network/NetworkClient';
 import { UIManager } from '../ui/UIManager';
 import { LocalGameLoop } from './LocalGameLoop';
+import { debug } from '../utils/debug';
 import type { MapData, InputState } from '@shared/types';
 import { TICK_RATE, MAP_WIDTH, MAP_HEIGHT } from '@shared/constants';
 import type { IRenderer, IInputManager, IUIManager, IGameLoop, GameConfig } from './interfaces';
@@ -130,7 +131,7 @@ export class Game {
     this.lastTime = performance.now();
     requestAnimationFrame(this.gameLoop.bind(this));
 
-    console.log('Singleplayer game started');
+    debug.log('Singleplayer game started');
   }
 
   private startMultiplayer(): void {
@@ -150,7 +151,7 @@ export class Game {
       this.lastTime = performance.now();
       requestAnimationFrame(this.gameLoop.bind(this));
 
-      console.log('Multiplayer game started, playerId:', playerId);
+      debug.log('Multiplayer game started, playerId:', playerId);
     };
 
     this.network.onStateUpdate = (state) => {

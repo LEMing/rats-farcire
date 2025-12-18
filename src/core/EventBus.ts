@@ -6,6 +6,7 @@
  */
 
 import type { Vec3 } from '../../shared/types';
+import { debug } from '../utils/debug';
 
 // Define all game events and their payloads
 export interface GameEvents {
@@ -127,7 +128,7 @@ export class EventBus {
       try {
         (sub.handler as EventHandler<T>)(payload);
       } catch (error) {
-        console.error(`Error in event handler for "${event}":`, error);
+        debug.error(`Error in event handler for "${event}":`, error);
       }
 
       // Remove one-time subscriptions

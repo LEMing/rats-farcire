@@ -53,6 +53,7 @@ import { UIManager } from '../ui/UIManager';
 import { EnemyAI } from '../ai/EnemyAI';
 import { Renderer } from '../rendering/Renderer';
 import { EventBus, getEventBus } from './EventBus';
+import { debug } from '../utils/debug';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -104,11 +105,11 @@ export class LocalGameLoop {
     this.waveManager = new WaveManager(mapData, {
       onSpawnEnemy: (request) => this.handleSpawnEnemy(request),
       onWaveStart: (wave, count) => {
-        console.log(`Wave ${wave} started! Enemies: ${count}`);
+        debug.log(`Wave ${wave} started! Enemies: ${count}`);
         this.eventBus.emit('waveStarted', { waveNumber: wave, enemyCount: count });
       },
       onWaveComplete: (wave) => {
-        console.log(`Wave ${wave} complete!`);
+        debug.log(`Wave ${wave} complete!`);
         this.eventBus.emit('waveCompleted', { waveNumber: wave });
       },
     });
