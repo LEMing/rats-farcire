@@ -157,14 +157,12 @@ export const BLOOD_COLORS = {
   tank: 0x660033,
 } as const;
 
-// Colors (hex) - California backyard style
+// Colors (hex)
 export const COLORS = {
-  floor: 0x4a7c3f, // grass green
-  floorAlt: 0x3d6b35, // darker grass variation
-  wall: 0x8b4513, // redwood fence
-  wallPost: 0x6b3a0f, // darker redwood for posts
-  debris: 0x5c4a3a, // wood chips/mulch
-  puddle: 0x3a6b5c, // garden pond tint
+  floor: 0x3d3d5c,
+  wall: 0x2a2a40,
+  debris: 0x4a4a6a,
+  puddle: 0x2d4a5c,
   player: 0x79c0ff, // brighter blue like codex
   enemy: 0xe26b6b, // slightly different red
   enemyRunner: 0xff8866,
@@ -177,8 +175,7 @@ export const COLORS = {
   torchHolder: 0x4a3728,
   muzzleFlash: 0xffff88,
   dashTrail: 0x4488ff,
-  altarStone: 0x6b5a4a, // weathered stone for outdoor
+  altarStone: 0x3a3a4a,
   altarCandle: 0xddcc88,
   candleFlame: 0xff9944,
-  fencePlank: 0x9c5a2e, // lighter redwood plank
 } as const;

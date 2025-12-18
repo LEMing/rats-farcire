@@ -73,7 +73,7 @@ export class Renderer {
 
     // Create scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb); // California sky blue
+    this.scene.background = new THREE.Color(0x1a1a2e);
 
     // Create orthographic camera for isometric view
     const aspect = window.innerWidth / window.innerHeight;
@@ -235,13 +235,13 @@ export class Renderer {
   }
 
   private setupLighting(): void {
-    // Bright California sunlight ambient
-    const ambient = new THREE.AmbientLight(0x8899aa, 1.0);
+    // Ambient light
+    const ambient = new THREE.AmbientLight(0x606080, 0.8);
     this.scene.add(ambient);
 
-    // Main directional light (California sun - warm and bright)
-    const sun = new THREE.DirectionalLight(0xfffaf0, 1.4);
-    sun.position.set(30, 50, 20);
+    // Main directional light (sun)
+    const sun = new THREE.DirectionalLight(0xffffcc, 1.0);
+    sun.position.set(20, 40, 20);
     sun.castShadow = true;
     sun.shadow.mapSize.width = 2048;
     sun.shadow.mapSize.height = 2048;
@@ -253,34 +253,17 @@ export class Renderer {
     sun.shadow.camera.bottom = -50;
     this.scene.add(sun);
 
-    // Warm fill light (reflected from ground)
-    const fill = new THREE.DirectionalLight(0xffeedd, 0.4);
-    fill.position.set(-10, 5, -10);
+    // Fill light
+    const fill = new THREE.DirectionalLight(0x6666aa, 0.3);
+    fill.position.set(-10, 10, -10);
     this.scene.add(fill);
-
-    // Hemisphere light for outdoor sky/ground ambience
-    const hemi = new THREE.HemisphereLight(0x87ceeb, 0x4a7c3f, 0.5);
-    this.scene.add(hemi);
   }
 
   private cacheGeometries(): void {
-    // Floor tile (grass)
+    // Floor tile
     this.geometries.set('floor', new THREE.BoxGeometry(TILE_SIZE, 0.1, TILE_SIZE));
 
-    // Fence post (tall thin box at corners)
-    const postHeight = TILE_SIZE * 0.9;
-    const postWidth = 0.15;
-    this.geometries.set('fencePost', new THREE.BoxGeometry(postWidth, postHeight, postWidth));
-
-    // Fence plank (horizontal board) - for X-aligned fences
-    const plankHeight = 0.18;
-    const plankDepth = 0.08;
-    this.geometries.set('fencePlankX', new THREE.BoxGeometry(TILE_SIZE * 0.9, plankHeight, plankDepth));
-
-    // Fence plank - for Z-aligned fences
-    this.geometries.set('fencePlankZ', new THREE.BoxGeometry(plankDepth, plankHeight, TILE_SIZE * 0.9));
-
-    // Legacy wall (for occlusion detection - invisible)
+    // Wall
     this.geometries.set('wall', new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE));
 
     // Player body
@@ -295,10 +278,10 @@ export class Renderer {
     // Pickup
     this.geometries.set('pickup', new THREE.OctahedronGeometry(0.3));
 
-    // Debris (wood chips/mulch)
-    this.geometries.set('debris', new THREE.BoxGeometry(0.3, 0.1, 0.3));
+    // Debris (small box)
+    this.geometries.set('debris', new THREE.BoxGeometry(0.3, 0.15, 0.3));
 
-    // Puddle (garden pond)
+    // Puddle (flat cylinder)
     this.geometries.set('puddle', new THREE.CylinderGeometry(0.6, 0.6, 0.02, 12));
   }
 
@@ -311,15 +294,6 @@ export class Renderer {
       'wall',
       new THREE.MeshLambertMaterial({ color: COLORS.wall })
     );
-    // California redwood fence materials
-    this.materials.set(
-      'fencePost',
-      new THREE.MeshLambertMaterial({ color: COLORS.wallPost })
-    );
-    this.materials.set(
-      'fencePlank',
-      new THREE.MeshLambertMaterial({ color: COLORS.fencePlank })
-    );
     this.materials.set(
       'debris',
       new THREE.MeshLambertMaterial({ color: COLORS.debris })
@@ -329,7 +303,7 @@ export class Renderer {
       new THREE.MeshLambertMaterial({
         color: COLORS.puddle,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.6,
       })
     );
     this.materials.set(
