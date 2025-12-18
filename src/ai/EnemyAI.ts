@@ -6,6 +6,98 @@ import { TILE_SIZE, ENEMY_CONFIGS } from '@shared/constants';
 // Enemy AI System with A* Pathfinding
 // ============================================================================
 
+// A* Node interface
+interface AStarNode {
+  x: number;
+  y: number;
+  g: number;
+  h: number;
+  f: number;
+  parent: AStarNode | null;
+}
+
+/**
+ * Binary min-heap for efficient A* open set management
+ * O(log n) insert and extract-min instead of O(n log n) sort
+ */
+class MinHeap {
+  private heap: AStarNode[] = [];
+  private nodeMap: Map<string, AStarNode> = new Map();
+
+  get size(): number {
+    return this.heap.length;
+  }
+
+  clear(): void {
+    this.heap.length = 0;
+    this.nodeMap.clear();
+  }
+
+  push(node: AStarNode): void {
+    this.heap.push(node);
+    this.nodeMap.set(`${node.x},${node.y}`, node);
+    this.bubbleUp(this.heap.length - 1);
+  }
+
+  pop(): AStarNode | undefined {
+    if (this.heap.length === 0) return undefined;
+    const min = this.heap[0];
+    const last = this.heap.pop()!;
+    this.nodeMap.delete(`${min.x},${min.y}`);
+    if (this.heap.length > 0) {
+      this.heap[0] = last;
+      this.bubbleDown(0);
+    }
+    return min;
+  }
+
+  get(x: number, y: number): AStarNode | undefined {
+    return this.nodeMap.get(`${x},${y}`);
+  }
+
+  update(node: AStarNode): void {
+    const idx = this.heap.indexOf(node);
+    if (idx !== -1) {
+      this.bubbleUp(idx);
+    }
+  }
+
+  private bubbleUp(idx: number): void {
+    while (idx > 0) {
+      const parentIdx = Math.floor((idx - 1) / 2);
+      if (this.heap[idx].f < this.heap[parentIdx].f) {
+        [this.heap[idx], this.heap[parentIdx]] = [this.heap[parentIdx], this.heap[idx]];
+        idx = parentIdx;
+      } else {
+        break;
+      }
+    }
+  }
+
+  private bubbleDown(idx: number): void {
+    const length = this.heap.length;
+    while (true) {
+      const leftIdx = 2 * idx + 1;
+      const rightIdx = 2 * idx + 2;
+      let smallest = idx;
+
+      if (leftIdx < length && this.heap[leftIdx].f < this.heap[smallest].f) {
+        smallest = leftIdx;
+      }
+      if (rightIdx < length && this.heap[rightIdx].f < this.heap[smallest].f) {
+        smallest = rightIdx;
+      }
+
+      if (smallest !== idx) {
+        [this.heap[idx], this.heap[smallest]] = [this.heap[smallest], this.heap[idx]];
+        idx = smallest;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
 interface EnemyPath {
   path: Vec2[];
   waypointIndex: number;
@@ -17,6 +109,10 @@ export class EnemyAI {
   private mapData: MapData;
   private pathCache: Map<string, Vec2[]> = new Map();
   private enemyPaths: Map<string, EnemyPath> = new Map();
+
+  // Reusable A* data structures to avoid per-search allocations
+  private readonly openSet = new MinHeap();
+  private readonly closedSet = new Set<string>();
 
   // Pathfinding settings
   private readonly PATH_RECALC_INTERVAL = 500; // ms between recalculations
@@ -34,7 +130,7 @@ export class EnemyAI {
   getMovementDirection(
     enemy: EnemyState,
     targetPosition: Vec3,
-    allEnemies: EnemyState[]
+    allEnemies: Iterable<EnemyState>
   ): Vec2 {
     const enemyPos: Vec2 = { x: enemy.position.x, y: enemy.position.z };
     const targetPos: Vec2 = { x: targetPosition.x, y: targetPosition.z };
@@ -207,7 +303,7 @@ export class EnemyAI {
   /**
    * Calculate separation force from nearby enemies
    */
-  private calculateSeparation(enemy: EnemyState, allEnemies: EnemyState[]): Vec2 {
+  private calculateSeparation(enemy: EnemyState, allEnemies: Iterable<EnemyState>): Vec2 {
     const config = ENEMY_CONFIGS[enemy.enemyType];
     const separationRadius = config.hitboxRadius * 4;
     const enemyPos: Vec2 = { x: enemy.position.x, y: enemy.position.z };
@@ -393,20 +489,24 @@ export class EnemyAI {
     };
   }
 
+  // Neighbor offsets for 8-directional movement (reused across calls)
+  private static readonly NEIGHBORS = [
+    { dx: 0, dy: -1, cost: 1 },
+    { dx: 0, dy: 1, cost: 1 },
+    { dx: -1, dy: 0, cost: 1 },
+    { dx: 1, dy: 0, cost: 1 },
+    { dx: -1, dy: -1, cost: 1.414 },
+    { dx: 1, dy: -1, cost: 1.414 },
+    { dx: -1, dy: 1, cost: 1.414 },
+    { dx: 1, dy: 1, cost: 1.414 },
+  ];
+
   private aStar(start: Vec2, end: Vec2): Vec2[] {
-    interface Node {
-      x: number;
-      y: number;
-      g: number;
-      h: number;
-      f: number;
-      parent: Node | null;
-    }
+    // Clear and reuse data structures
+    this.openSet.clear();
+    this.closedSet.clear();
 
-    const openSet: Node[] = [];
-    const closedSet = new Set<string>();
-
-    const startNode: Node = {
+    const startNode: AStarNode = {
       x: start.x,
       y: start.y,
       g: 0,
@@ -415,34 +515,22 @@ export class EnemyAI {
       parent: null,
     };
     startNode.f = startNode.g + startNode.h;
-    openSet.push(startNode);
-
-    const neighbors = [
-      { dx: 0, dy: -1, cost: 1 },
-      { dx: 0, dy: 1, cost: 1 },
-      { dx: -1, dy: 0, cost: 1 },
-      { dx: 1, dy: 0, cost: 1 },
-      { dx: -1, dy: -1, cost: 1.414 },
-      { dx: 1, dy: -1, cost: 1.414 },
-      { dx: -1, dy: 1, cost: 1.414 },
-      { dx: 1, dy: 1, cost: 1.414 },
-    ];
+    this.openSet.push(startNode);
 
     let iterations = 0;
     const maxIterations = 2000;
 
-    while (openSet.length > 0 && iterations < maxIterations) {
+    while (this.openSet.size > 0 && iterations < maxIterations) {
       iterations++;
 
-      // Find node with lowest f score
-      openSet.sort((a, b) => a.f - b.f);
-      const current = openSet.shift()!;
+      // Extract node with lowest f score - O(log n) instead of O(n log n)
+      const current = this.openSet.pop()!;
       const currentKey = `${current.x},${current.y}`;
 
       if (current.x === end.x && current.y === end.y) {
         // Reconstruct path
         const path: Vec2[] = [];
-        let node: Node | null = current;
+        let node: AStarNode | null = current;
         while (node) {
           path.unshift({ x: node.x, y: node.y });
           node = node.parent;
@@ -450,14 +538,14 @@ export class EnemyAI {
         return path;
       }
 
-      closedSet.add(currentKey);
+      this.closedSet.add(currentKey);
 
-      for (const { dx, dy, cost } of neighbors) {
+      for (const { dx, dy, cost } of EnemyAI.NEIGHBORS) {
         const nx = current.x + dx;
         const ny = current.y + dy;
         const neighborKey = `${nx},${ny}`;
 
-        if (closedSet.has(neighborKey)) continue;
+        if (this.closedSet.has(neighborKey)) continue;
 
         // Check bounds and walkability
         if (!this.isTileWalkable(nx, ny)) continue;
@@ -473,10 +561,11 @@ export class EnemyAI {
 
         const tentativeG = current.g + cost;
 
-        const existingNode = openSet.find((n) => n.x === nx && n.y === ny);
+        // O(1) lookup instead of O(n) find
+        const existingNode = this.openSet.get(nx, ny);
 
         if (!existingNode) {
-          const newNode: Node = {
+          const newNode: AStarNode = {
             x: nx,
             y: ny,
             g: tentativeG,
@@ -485,11 +574,12 @@ export class EnemyAI {
             parent: current,
           };
           newNode.f = newNode.g + newNode.h;
-          openSet.push(newNode);
+          this.openSet.push(newNode);
         } else if (tentativeG < existingNode.g) {
           existingNode.g = tentativeG;
           existingNode.f = existingNode.g + existingNode.h;
           existingNode.parent = current;
+          this.openSet.update(existingNode);
         }
       }
     }

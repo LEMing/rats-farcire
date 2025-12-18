@@ -27,13 +27,17 @@ export class ParticleSystem {
   private dummyMatrix = new THREE.Matrix4();
   private dummyColor = new THREE.Color();
 
-  private bloodDecals: THREE.Mesh[] = [];
+  // Blood decal instancing - no per-decal allocation
+  private bloodDecalInstances!: THREE.InstancedMesh;
+  private nextDecalIndex = 0;
+  private decalCount = 0;
 
   private readonly scene: THREE.Scene;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.initParticleSystem();
+    this.initBloodDecalSystem();
   }
 
   // ============================================================================
@@ -68,6 +72,37 @@ export class ParticleSystem {
       this.particleInstances.instanceColor.needsUpdate = true;
     }
     this.scene.add(this.particleInstances);
+  }
+
+  private initBloodDecalSystem(): void {
+    // Single geometry for all blood decals (circle laying flat)
+    const geometry = new THREE.CircleGeometry(0.4, 8);
+    geometry.rotateX(-Math.PI / 2); // Lay flat on ground
+
+    // Shared material for all decals
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false, // Prevent z-fighting
+    });
+
+    // Create instanced mesh - ONE draw call for all decals
+    this.bloodDecalInstances = new THREE.InstancedMesh(geometry, material, this.MAX_BLOOD_DECALS);
+    this.bloodDecalInstances.frustumCulled = false;
+    this.bloodDecalInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    // Initialize all instances as hidden
+    const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_BLOOD_DECALS; i++) {
+      this.bloodDecalInstances.setMatrixAt(i, hiddenMatrix);
+      this.bloodDecalInstances.setColorAt(i, new THREE.Color(0x440000));
+    }
+
+    this.bloodDecalInstances.instanceMatrix.needsUpdate = true;
+    if (this.bloodDecalInstances.instanceColor) {
+      this.bloodDecalInstances.instanceColor.needsUpdate = true;
+    }
+    this.scene.add(this.bloodDecalInstances);
   }
 
   // ============================================================================
@@ -107,34 +142,34 @@ export class ParticleSystem {
   }
 
   /**
-   * Spawn a blood decal on the ground
+   * Spawn a blood decal on the ground (using instanced mesh - no allocation)
    */
   spawnBloodDecal(x: number, z: number, size: number = 1): void {
-    // Recycle oldest if at limit
-    if (this.bloodDecals.length >= this.MAX_BLOOD_DECALS) {
-      const oldest = this.bloodDecals.shift()!;
-      this.scene.remove(oldest);
-      oldest.geometry.dispose();
-      (oldest.material as THREE.Material).dispose();
-    }
+    // Use circular buffer - oldest decals get replaced
+    const index = this.nextDecalIndex;
+    this.nextDecalIndex = (this.nextDecalIndex + 1) % this.MAX_BLOOD_DECALS;
+    this.decalCount = Math.min(this.decalCount + 1, this.MAX_BLOOD_DECALS);
 
-    const geom = new THREE.CircleGeometry(0.3 * size + Math.random() * 0.2, 8);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0x440000 + Math.floor(Math.random() * 0x220000),
-      transparent: true,
-      opacity: 0.6,
-    });
-    const decal = new THREE.Mesh(geom, mat);
-    decal.rotation.x = -Math.PI / 2;
-    decal.position.set(
+    // Set position and scale
+    const scale = 0.75 * size + Math.random() * 0.5;
+    this.dummyMatrix.makeScale(scale, scale, scale);
+    this.dummyMatrix.setPosition(
       x + (Math.random() - 0.5) * 0.5,
       0.02,
       z + (Math.random() - 0.5) * 0.5
     );
-    decal.userData.mapObject = true;
+    this.bloodDecalInstances.setMatrixAt(index, this.dummyMatrix);
 
-    this.scene.add(decal);
-    this.bloodDecals.push(decal);
+    // Set color variation (dark red to maroon)
+    const colorVariation = 0.2 + Math.random() * 0.3;
+    this.dummyColor.setRGB(colorVariation, 0, 0);
+    this.bloodDecalInstances.setColorAt(index, this.dummyColor);
+
+    // Mark buffers for update
+    this.bloodDecalInstances.instanceMatrix.needsUpdate = true;
+    if (this.bloodDecalInstances.instanceColor) {
+      this.bloodDecalInstances.instanceColor.needsUpdate = true;
+    }
   }
 
   /**
@@ -193,12 +228,14 @@ export class ParticleSystem {
    * Clear all decals (called on map rebuild)
    */
   clearDecals(): void {
-    for (const decal of this.bloodDecals) {
-      this.scene.remove(decal);
-      decal.geometry.dispose();
-      (decal.material as THREE.Material).dispose();
+    // Reset all decal instances to hidden (scale 0)
+    const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = 0; i < this.MAX_BLOOD_DECALS; i++) {
+      this.bloodDecalInstances.setMatrixAt(i, hiddenMatrix);
     }
-    this.bloodDecals = [];
+    this.bloodDecalInstances.instanceMatrix.needsUpdate = true;
+    this.nextDecalIndex = 0;
+    this.decalCount = 0;
   }
 
   /**

@@ -94,6 +94,10 @@ export class LocalGameLoop {
   // Track last afterimage spawn time for dash
   private lastAfterimageTime = 0;
 
+  // Reusable arrays to avoid per-frame allocations
+  private readonly projectilesToRemove: string[] = [];
+  private readonly pickupsToRemove: string[] = [];
+
   constructor(mapData: MapData, entities: EntityManager, ui: UIManager, renderer: Renderer) {
     this.mapData = mapData;
     this.entities = entities;
@@ -380,7 +384,8 @@ export class LocalGameLoop {
 
   private updateProjectiles(dt: number): void {
     const dtSeconds = dt / 1000;
-    const toRemove: string[] = [];
+    const toRemove = this.projectilesToRemove;
+    toRemove.length = 0; // Clear without allocation
 
     for (const [id, proj] of this.projectiles) {
       // Move projectile
@@ -608,7 +613,8 @@ export class LocalGameLoop {
   private updatePickups(): void {
     if (!this.player) return;
 
-    const toRemove: string[] = [];
+    const toRemove = this.pickupsToRemove;
+    toRemove.length = 0;
 
     for (const [id, pickup] of this.pickups) {
       if (
@@ -772,7 +778,7 @@ export class LocalGameLoop {
       const moveDir = this.ai.getMovementDirection(
         enemy,
         this.player.position,
-        Array.from(this.enemies.values())
+        this.enemies.values()
       );
 
       // Move enemy (speed scales with wave)

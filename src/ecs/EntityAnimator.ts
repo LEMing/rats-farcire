@@ -28,6 +28,12 @@ export interface SceneProvider {
   camera: THREE.Camera;
 }
 
+// Cached mesh with emissive material for efficient per-frame updates
+interface CachedEmissiveMesh {
+  mesh: THREE.Mesh;
+  material: THREE.MeshLambertMaterial;
+}
+
 export class EntityAnimator {
   private sceneProvider: SceneProvider;
 
@@ -36,6 +42,9 @@ export class EntityAnimator {
 
   // Damage visual state tracking
   private enemyDamageStates: Map<string, DamageState> = new Map();
+
+  // Cached emissive meshes per entity to avoid traverse() every frame
+  private entityEmissiveMeshes: Map<string, CachedEmissiveMesh[]> = new Map();
 
   // Player recoil state
   private playerRecoil = {
@@ -66,6 +75,29 @@ export class EntityAnimator {
   cleanupEntity(id: string): void {
     this.enemyStates.delete(id);
     this.enemyDamageStates.delete(id);
+    this.entityEmissiveMeshes.delete(id);
+  }
+
+  /**
+   * Cache emissive meshes for an entity to avoid traverse() every frame
+   */
+  private cacheEmissiveMeshes(id: string, entity: EntityVisual): CachedEmissiveMesh[] {
+    let cached = this.entityEmissiveMeshes.get(id);
+    if (cached) return cached;
+
+    cached = [];
+    entity.mesh.traverse((child) => {
+      if (child instanceof THREE.Mesh &&
+          !child.name.includes('healthBar') &&
+          child.name !== 'speechBubble') {
+        const mat = child.material as THREE.MeshLambertMaterial;
+        if (mat.emissive) {
+          cached!.push({ mesh: child, material: mat });
+        }
+      }
+    });
+    this.entityEmissiveMeshes.set(id, cached);
+    return cached;
   }
 
   // ============================================================================
@@ -93,15 +125,11 @@ export class EntityAnimator {
     // Store health
     damageState.lastHealth = health;
 
-    // Immediate white flash on all materials
-    entity.mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.name !== 'speechBubble' && child.name !== 'healthBar') {
-        const mat = child.material as THREE.MeshLambertMaterial;
-        if (mat.emissive) {
-          mat.emissive.setRGB(1, 1, 1);
-        }
-      }
-    });
+    // Immediate white flash on all materials (using cached meshes)
+    const emissiveMeshes = this.cacheEmissiveMeshes(id, entity);
+    for (const { material } of emissiveMeshes) {
+      material.emissive.setRGB(1, 1, 1);
+    }
 
     // Update health bar
     this.updateHealthBar(entity.mesh, health, maxHealth);
@@ -359,25 +387,19 @@ export class EntityAnimator {
     const dt = 16;
 
     if (damageState) {
-      // Flash effect
+      // Flash effect (using cached meshes for performance)
       if (damageState.flashTime > 0) {
         damageState.flashTime -= dt;
         const flashIntensity = damageState.flashTime / 150;
 
-        entity.mesh.traverse((child) => {
-          if (child instanceof THREE.Mesh &&
-              !child.name.includes('healthBar') &&
-              child.name !== 'speechBubble') {
-            const mat = child.material as THREE.MeshLambertMaterial;
-            if (mat.emissive) {
-              mat.emissive.setRGB(flashIntensity, flashIntensity * 0.3, flashIntensity * 0.3);
-            }
-          }
-        });
+        const emissiveMeshes = this.cacheEmissiveMeshes(id, entity);
+        for (const { material } of emissiveMeshes) {
+          material.emissive.setRGB(flashIntensity, flashIntensity * 0.3, flashIntensity * 0.3);
+        }
       } else if (enemyState?.state === 'attacking') {
-        this.applyAttackGlow(entity);
+        this.applyAttackGlow(id, entity);
       } else {
-        this.resetEmissive(entity);
+        this.resetEmissive(id, entity);
       }
 
       // Stagger shake
@@ -399,35 +421,23 @@ export class EntityAnimator {
         }
       });
     } else if (enemyState?.state === 'attacking') {
-      this.applyAttackGlow(entity);
+      this.applyAttackGlow(id, entity);
     }
   }
 
-  private applyAttackGlow(entity: EntityVisual): void {
-    entity.mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh &&
-          !child.name.includes('healthBar') &&
-          child.name !== 'speechBubble') {
-        const mat = child.material as THREE.MeshLambertMaterial;
-        if (mat.emissive) {
-          const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
-          mat.emissive.setRGB(pulse * 0.5, 0, 0);
-        }
-      }
-    });
+  private applyAttackGlow(id: string, entity: EntityVisual): void {
+    const emissiveMeshes = this.cacheEmissiveMeshes(id, entity);
+    const pulse = Math.sin(Date.now() * 0.015) * 0.5 + 0.5;
+    for (const { material } of emissiveMeshes) {
+      material.emissive.setRGB(pulse * 0.5, 0, 0);
+    }
   }
 
-  private resetEmissive(entity: EntityVisual): void {
-    entity.mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh &&
-          !child.name.includes('healthBar') &&
-          child.name !== 'speechBubble') {
-        const mat = child.material as THREE.MeshLambertMaterial;
-        if (mat.emissive) {
-          mat.emissive.setRGB(0, 0, 0);
-        }
-      }
-    });
+  private resetEmissive(id: string, entity: EntityVisual): void {
+    const emissiveMeshes = this.cacheEmissiveMeshes(id, entity);
+    for (const { material } of emissiveMeshes) {
+      material.emissive.setRGB(0, 0, 0);
+    }
   }
 
   private animateHealthBarBillboard(entity: EntityVisual): void {
