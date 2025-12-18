@@ -207,8 +207,8 @@ export class LocalGameLoop {
     // Wave management (delegated to WaveManager)
     this.waveManager.update(dt);
 
-    // Update wall occlusion (hide walls that block view of player/enemies)
-    this.updateWallOcclusion();
+    // Update wall opacity (fade walls near entities for visibility)
+    this.updateWallOcclusion(dt);
 
     // Update UI
     const waveState = this.waveManager.getState();
@@ -935,10 +935,10 @@ export class LocalGameLoop {
   // ============================================================================
 
   /**
-   * Update wall visibility to prevent entities from being hidden behind walls.
-   * Collects all entity positions and passes them to the renderer for occlusion culling.
+   * Update wall opacity to keep entities visible behind walls.
+   * Walls near entities fade smoothly for better visibility.
    */
-  private updateWallOcclusion(): void {
+  private updateWallOcclusion(dt: number): void {
     const entityPositions: Array<{ x: number; z: number }> = [];
 
     // Add player position
@@ -951,7 +951,7 @@ export class LocalGameLoop {
       entityPositions.push({ x: enemy.position.x, z: enemy.position.z });
     }
 
-    // Update wall occlusion in renderer
-    this.renderer.updateWallOcclusion(entityPositions);
+    // Update wall opacity in renderer (dt in seconds)
+    this.renderer.updateWallOcclusion(entityPositions, dt / 1000);
   }
 }

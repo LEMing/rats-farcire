@@ -18,12 +18,13 @@ export interface MapRendererDependencies {
   clearDecals(): void;
 }
 
-// Wall position data for occlusion detection
-interface WallInstance {
-  index: number;
+// Wall data for smooth opacity fading
+interface WallData {
+  mesh: THREE.Mesh;
   worldX: number;
   worldZ: number;
-  hidden: boolean;
+  currentOpacity: number;
+  targetOpacity: number;
 }
 
 export class MapRenderer {
@@ -44,11 +45,12 @@ export class MapRenderer {
   // Time tracking for animations
   private time = 0;
 
-  // Wall occlusion system
-  private wallInstanced: THREE.InstancedMesh | null = null;
-  private wallPositions: WallInstance[] = [];
-  private readonly hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
-  private readonly visibleMatrix = new THREE.Matrix4();
+  // Wall transparency system - individual meshes for smooth opacity animation
+  private walls: WallData[] = [];
+  private readonly WALL_OPACITY_MAX = 0.85;
+  private readonly WALL_OPACITY_MIN = 0.25;
+  private readonly WALL_FADE_SPEED = 8; // opacity units per second
+  private readonly WALL_FADE_RADIUS = 4; // distance at which walls start fading
 
   constructor(deps: MapRendererDependencies) {
     this.deps = deps;
@@ -68,9 +70,8 @@ export class MapRenderer {
     this.torchLights = [];
     this.torchFlames = [];
 
-    // Clear wall occlusion data
-    this.wallInstanced = null;
-    this.wallPositions = [];
+    // Clear wall data
+    this.walls = [];
 
     // Clear blood decals from previous map
     this.deps.clearDecals();
@@ -85,26 +86,17 @@ export class MapRenderer {
     const puddleGeom = this.deps.getGeometry('puddle')!;
 
     const floorMat = this.deps.getMaterial('floor')!;
-    const wallMat = this.deps.getMaterial('wall')!;
+    const wallBaseMat = this.deps.getMaterial('wall')! as THREE.MeshLambertMaterial;
     const debrisMat = this.deps.getMaterial('debris')!;
     const puddleMat = this.deps.getMaterial('puddle')!;
 
-    // Use instanced meshes for performance
+    // Use instanced mesh for floor (performance)
     const floorCount = mapData.tiles.flat().filter((t) => t.type === 'floor').length;
-    const wallCount = mapData.tiles.flat().filter((t) => t.type === 'wall').length;
-
     const floorInstanced = new THREE.InstancedMesh(floorGeom, floorMat, floorCount);
-    this.wallInstanced = new THREE.InstancedMesh(wallGeom, wallMat, wallCount);
-
     floorInstanced.receiveShadow = true;
-    this.wallInstanced.castShadow = true;
-    this.wallInstanced.receiveShadow = true;
-
     floorInstanced.userData.mapObject = true;
-    this.wallInstanced.userData.mapObject = true;
 
     let floorIndex = 0;
-    let wallIndex = 0;
     const matrix = new THREE.Matrix4();
 
     for (let y = 0; y < mapData.height; y++) {
@@ -135,17 +127,26 @@ export class MapRenderer {
             this.addFloorSymbol(worldX, worldZ);
           }
         } else if (tile.type === 'wall') {
-          matrix.setPosition(worldX, TILE_SIZE / 2, worldZ);
-          this.wallInstanced!.setMatrixAt(wallIndex, matrix);
+          // Create individual wall mesh with its own material for opacity animation
+          const wallMat = wallBaseMat.clone();
+          wallMat.transparent = true;
+          wallMat.opacity = this.WALL_OPACITY_MAX;
 
-          // Store wall position for occlusion detection
-          this.wallPositions.push({
-            index: wallIndex,
+          const wallMesh = new THREE.Mesh(wallGeom, wallMat);
+          wallMesh.position.set(worldX, TILE_SIZE / 2, worldZ);
+          wallMesh.castShadow = true;
+          wallMesh.receiveShadow = true;
+          wallMesh.userData.mapObject = true;
+          this.deps.scene.add(wallMesh);
+
+          // Store wall data for smooth opacity fading
+          this.walls.push({
+            mesh: wallMesh,
             worldX,
             worldZ,
-            hidden: false,
+            currentOpacity: this.WALL_OPACITY_MAX,
+            targetOpacity: this.WALL_OPACITY_MAX,
           });
-          wallIndex++;
 
           // Maybe add torch on walls adjacent to floor
           if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
@@ -183,10 +184,7 @@ export class MapRenderer {
     }
 
     floorInstanced.instanceMatrix.needsUpdate = true;
-    this.wallInstanced.instanceMatrix.needsUpdate = true;
-
     this.deps.scene.add(floorInstanced);
-    this.deps.scene.add(this.wallInstanced);
 
     // Create cult altars
     for (const pos of mapData.altarPositions) {
@@ -687,91 +685,70 @@ export class MapRenderer {
   }
 
   // ============================================================================
-  // Wall Occlusion System (for isometric camera)
+  // Wall Transparency System (smooth opacity fade for isometric camera)
   // ============================================================================
 
   /**
-   * Update wall visibility based on entity positions.
-   * Walls that would occlude entities are hidden (cutaway effect).
-   *
-   * In isometric view (camera at ~45 degrees looking down from top-right),
-   * walls occlude entities when the wall is "between" the camera and entity.
-   * This means walls at (entityX + offset, entityZ + offset) relative to entity position.
+   * Update wall opacity based on entity positions.
+   * Walls near entities fade to lower opacity for visibility.
+   * Animation is smooth - opacity lerps toward target.
    *
    * @param entityPositions Array of entity world positions {x, z}
-   * @param occlusionRadius How far around each entity to check for occluding walls
+   * @param dt Delta time in seconds for smooth animation
    */
   updateWallOcclusion(
     entityPositions: Array<{ x: number; z: number }>,
-    occlusionRadius: number = TILE_SIZE * 2
+    dt: number = 0.016
   ): void {
-    if (!this.wallInstanced || this.wallPositions.length === 0) return;
+    if (this.walls.length === 0) return;
 
-    // Track which walls should be hidden
-    const wallsToHide = new Set<number>();
+    // For each wall, calculate target opacity based on distance to nearest entity
+    for (const wall of this.walls) {
+      let minDistSq = Infinity;
 
-    // For each entity, find walls that would occlude it from isometric camera
-    // Camera looks from +X +Z direction toward -X -Z (top-right to bottom-left)
-    // So walls with HIGHER X and HIGHER Z than an entity can occlude it
-    for (const entity of entityPositions) {
-      for (const wall of this.wallPositions) {
-        // Check if wall is in the "occlusion zone" relative to entity
-        // Wall occludes if it's roughly in the direction the camera is looking from
+      // Find closest entity to this wall
+      for (const entity of entityPositions) {
         const dx = wall.worldX - entity.x;
         const dz = wall.worldZ - entity.z;
-
-        // Wall is behind entity from camera's POV if dx > 0 AND dz > 0
-        // (camera looks from +X +Z quadrant)
-        // Also check if wall is close enough to actually occlude
         const distSq = dx * dx + dz * dz;
-        const isInOcclusionZone = dx > -TILE_SIZE && dx < occlusionRadius &&
-                                   dz > -TILE_SIZE && dz < occlusionRadius;
 
-        if (isInOcclusionZone && distSq < occlusionRadius * occlusionRadius) {
-          wallsToHide.add(wall.index);
+        if (distSq < minDistSq) {
+          minDistSq = distSq;
         }
       }
-    }
 
-    // Update wall visibility
-    let anyChanged = false;
-    for (const wall of this.wallPositions) {
-      const shouldHide = wallsToHide.has(wall.index);
+      const minDist = Math.sqrt(minDistSq);
 
-      if (shouldHide !== wall.hidden) {
-        wall.hidden = shouldHide;
-        anyChanged = true;
-
-        if (shouldHide) {
-          // Scale to 0 to hide
-          this.wallInstanced.setMatrixAt(wall.index, this.hiddenMatrix);
-        } else {
-          // Restore visible position
-          this.visibleMatrix.setPosition(wall.worldX, TILE_SIZE / 2, wall.worldZ);
-          this.wallInstanced.setMatrixAt(wall.index, this.visibleMatrix);
-        }
+      // Calculate target opacity based on distance
+      if (minDist < this.WALL_FADE_RADIUS) {
+        // Fade based on how close the entity is
+        const t = minDist / this.WALL_FADE_RADIUS;
+        wall.targetOpacity = this.WALL_OPACITY_MIN + t * (this.WALL_OPACITY_MAX - this.WALL_OPACITY_MIN);
+      } else {
+        wall.targetOpacity = this.WALL_OPACITY_MAX;
       }
-    }
 
-    if (anyChanged) {
-      this.wallInstanced.instanceMatrix.needsUpdate = true;
+      // Smoothly animate toward target opacity
+      const diff = wall.targetOpacity - wall.currentOpacity;
+      if (Math.abs(diff) > 0.001) {
+        wall.currentOpacity += Math.sign(diff) * Math.min(Math.abs(diff), this.WALL_FADE_SPEED * dt);
+
+        // Update material opacity
+        const mat = wall.mesh.material as THREE.MeshLambertMaterial;
+        mat.opacity = wall.currentOpacity;
+      }
     }
   }
 
   /**
-   * Show all walls (reset occlusion)
+   * Reset all walls to full opacity
    */
   resetWallOcclusion(): void {
-    if (!this.wallInstanced) return;
-
-    for (const wall of this.wallPositions) {
-      if (wall.hidden) {
-        wall.hidden = false;
-        this.visibleMatrix.setPosition(wall.worldX, TILE_SIZE / 2, wall.worldZ);
-        this.wallInstanced.setMatrixAt(wall.index, this.visibleMatrix);
-      }
+    for (const wall of this.walls) {
+      wall.currentOpacity = this.WALL_OPACITY_MAX;
+      wall.targetOpacity = this.WALL_OPACITY_MAX;
+      const mat = wall.mesh.material as THREE.MeshLambertMaterial;
+      mat.opacity = this.WALL_OPACITY_MAX;
     }
-
-    this.wallInstanced.instanceMatrix.needsUpdate = true;
   }
 }

@@ -551,11 +551,11 @@ export class Renderer {
   // ============================================================================
 
   /**
-   * Update wall visibility based on entity positions.
-   * Walls that would occlude entities from isometric camera are hidden.
+   * Update wall opacity based on entity positions.
+   * Walls near entities fade smoothly for better visibility.
    */
-  updateWallOcclusion(entityPositions: Array<{ x: number; z: number }>): void {
-    this.mapRenderer.updateWallOcclusion(entityPositions);
+  updateWallOcclusion(entityPositions: Array<{ x: number; z: number }>, dt: number = 0.016): void {
+    this.mapRenderer.updateWallOcclusion(entityPositions, dt);
   }
 
   resetWallOcclusion(): void {
