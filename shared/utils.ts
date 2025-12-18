@@ -220,3 +220,26 @@ export function isWalkable(mapData: MapData, worldX: number, worldZ: number): bo
 
   return mapData.tiles[tileY][tileX].walkable;
 }
+
+/**
+ * Check if a circle (position + radius) can fit without hitting walls.
+ * Checks 8 points around the circumference plus center.
+ */
+export function isWalkableWithRadius(
+  mapData: MapData,
+  worldX: number,
+  worldZ: number,
+  radius: number
+): boolean {
+  // Check center
+  if (!isWalkable(mapData, worldX, worldZ)) return false;
+
+  // Check 8 points around the circumference
+  for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+    const checkX = worldX + Math.cos(angle) * radius;
+    const checkZ = worldZ + Math.sin(angle) * radius;
+    if (!isWalkable(mapData, checkX, checkZ)) return false;
+  }
+
+  return true;
+}

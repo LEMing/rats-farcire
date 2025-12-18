@@ -49,6 +49,7 @@ import {
   circleCollision,
   angleBetween,
   isWalkable,
+  isWalkableWithRadius,
 } from '@shared/utils';
 import { EntityManager } from '../ecs/EntityManager';
 import { UIManager } from '../ui/UIManager';
@@ -295,11 +296,11 @@ export class LocalGameLoop {
     newX = this.player.position.x + newVelX * dtSeconds;
     newZ = this.player.position.z + newVelZ * dtSeconds;
 
-    // Collision with walls
-    if (!isWalkable(this.mapData, newX, this.player.position.z)) {
+    // Collision with walls (check hitbox radius, not just center point)
+    if (!isWalkableWithRadius(this.mapData, newX, this.player.position.z, PLAYER_HITBOX_RADIUS)) {
       newX = this.player.position.x;
     }
-    if (!isWalkable(this.mapData, this.player.position.x, newZ)) {
+    if (!isWalkableWithRadius(this.mapData, this.player.position.x, newZ, PLAYER_HITBOX_RADIUS)) {
       newZ = this.player.position.z;
     }
 
@@ -767,12 +768,12 @@ export class LocalGameLoop {
         let kbX = enemy.position.x + enemy.knockbackVelocity.x * dtSeconds;
         let kbZ = enemy.position.z + enemy.knockbackVelocity.y * dtSeconds;
 
-        // Wall collision for knockback
-        if (!isWalkable(this.mapData, kbX, enemy.position.z)) {
+        // Wall collision for knockback (check hitbox radius)
+        if (!isWalkableWithRadius(this.mapData, kbX, enemy.position.z, config.hitboxRadius)) {
           kbX = enemy.position.x;
           enemy.knockbackVelocity.x = 0;
         }
-        if (!isWalkable(this.mapData, enemy.position.x, kbZ)) {
+        if (!isWalkableWithRadius(this.mapData, enemy.position.x, kbZ, config.hitboxRadius)) {
           kbZ = enemy.position.z;
           enemy.knockbackVelocity.y = 0;
         }
@@ -801,11 +802,11 @@ export class LocalGameLoop {
       let newX = enemy.position.x + moveDir.x * speed * dtSeconds;
       let newZ = enemy.position.z + moveDir.y * speed * dtSeconds;
 
-      // Collision with walls
-      if (!isWalkable(this.mapData, newX, enemy.position.z)) {
+      // Collision with walls (check hitbox radius, not just center point)
+      if (!isWalkableWithRadius(this.mapData, newX, enemy.position.z, config.hitboxRadius)) {
         newX = enemy.position.x;
       }
-      if (!isWalkable(this.mapData, enemy.position.x, newZ)) {
+      if (!isWalkableWithRadius(this.mapData, enemy.position.x, newZ, config.hitboxRadius)) {
         newZ = enemy.position.z;
       }
 
