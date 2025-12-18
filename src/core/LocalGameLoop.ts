@@ -40,6 +40,7 @@ import {
 } from '@shared/constants';
 import { WaveManager, SpawnRequest } from '../systems/WaveManager';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem';
+import { SpatialHash, SpatialEntity } from '../systems/SpatialHash';
 import type { PowerUpType } from '@shared/types';
 import {
   generateId,
@@ -76,6 +77,9 @@ export class LocalGameLoop {
   // Extracted systems
   private waveManager!: WaveManager;
   private objectiveSystem!: ObjectiveSystem;
+
+  // Spatial partitioning for O(1) collision lookups
+  private enemySpatialHash = new SpatialHash<SpatialEntity>(4);
 
   private gameTime = 0;
 
@@ -404,9 +408,16 @@ export class LocalGameLoop {
         continue;
       }
 
-      // Check enemy collision
-      for (const [enemyId, enemy] of this.enemies) {
-        if (enemy.state === 'dead') continue;
+      // Check enemy collision using spatial hash (O(1) instead of O(n))
+      const nearbyEnemies = this.enemySpatialHash.getNearby(
+        proj.position.x,
+        proj.position.z,
+        PROJECTILE_HITBOX_RADIUS + 2 // Add buffer for largest enemy hitbox
+      );
+
+      for (const spatialEnemy of nearbyEnemies) {
+        const enemy = this.enemies.get(spatialEnemy.id);
+        if (!enemy || enemy.state === 'dead') continue;
 
         const config = ENEMY_CONFIGS[enemy.enemyType];
         if (
@@ -417,6 +428,7 @@ export class LocalGameLoop {
             config.hitboxRadius
           )
         ) {
+          const enemyId = enemy.id;
           // Damage enemy
           enemy.health -= proj.damage;
 
@@ -492,6 +504,9 @@ export class LocalGameLoop {
 
     enemy.state = 'dead';
     const config = ENEMY_CONFIGS[enemy.enemyType];
+
+    // Remove from spatial hash immediately (dead enemies don't collide)
+    this.enemySpatialHash.remove(enemyId);
 
     // Combo system
     this.player.comboCount++;
@@ -797,6 +812,14 @@ export class LocalGameLoop {
       enemy.position.x = newX;
       enemy.position.z = newZ;
 
+      // Update spatial hash with new position
+      this.enemySpatialHash.update({
+        id: enemy.id,
+        x: enemy.position.x,
+        z: enemy.position.z,
+        radius: config.hitboxRadius,
+      });
+
       // Face movement direction (or player when attacking)
       if (dist < config.attackRange * 1.5) {
         // Close to player - face them for attack
@@ -892,6 +915,14 @@ export class LocalGameLoop {
 
     this.enemies.set(enemy.id, enemy);
     this.entities.createEnemy(enemy);
+
+    // Add to spatial hash for efficient collision detection
+    this.enemySpatialHash.insert({
+      id: enemy.id,
+      x: enemy.position.x,
+      z: enemy.position.z,
+      radius: enemyConfig.hitboxRadius,
+    });
   }
 
 }
