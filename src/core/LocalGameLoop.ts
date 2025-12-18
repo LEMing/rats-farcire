@@ -393,8 +393,8 @@ export class LocalGameLoop {
             0
           );
 
-          // Blood burst on hit (more particles for better feedback)
-          this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 6);
+          // Blood burst on hit (minimal particles to avoid lag)
+          this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 2);
 
           // Trigger hitstop
           if (this.onHitstop) {

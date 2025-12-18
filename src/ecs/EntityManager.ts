@@ -53,6 +53,10 @@ export class EntityManager {
     recovery: 0.15, // How fast recoil recovers
   };
 
+  // Reusable muzzle flash light (avoid creating new lights every shot)
+  private muzzleFlashLight: THREE.PointLight | null = null;
+  private muzzleFlashIntensity = 0;
+
   // Shared speech bubble geometry/material
   private bubbleGeometry!: THREE.PlaneGeometry;
   private bubbleMaterial!: THREE.MeshBasicMaterial;
@@ -718,6 +722,12 @@ export class EntityManager {
           flash.quaternion.copy(this.renderer.camera.quaternion);
         }
 
+        // Fade muzzle flash light
+        if (this.muzzleFlashLight && this.muzzleFlashIntensity > 0.01) {
+          this.muzzleFlashIntensity *= 0.7;
+          this.muzzleFlashLight.intensity = this.muzzleFlashIntensity;
+        }
+
         // Apply recoil animation - use scale pulse instead of position offset
         if (this.playerRecoil.offset > 0.01 || this.playerRecoil.tilt > 0.01) {
           // Squash and stretch effect for recoil
@@ -904,34 +914,25 @@ export class EntityManager {
     }
 
     // Trigger recoil animation
-    this.playerRecoil.offset = 0.25; // Kick back
-    this.playerRecoil.tilt = 0.08;   // Tilt back
+    this.playerRecoil.offset = 0.25;
+    this.playerRecoil.tilt = 0.08;
 
-    // Create temporary point light for muzzle flash
-    const light = new THREE.PointLight(0xffaa44, 3, 10);
-    light.position.copy(entity.mesh.position);
-    light.position.y += 0.5;
+    // Reuse single muzzle flash light (no new allocations!)
+    if (!this.muzzleFlashLight) {
+      this.muzzleFlashLight = new THREE.PointLight(0xffaa44, 0, 8);
+      this.renderer.addToScene(this.muzzleFlashLight);
+    }
 
-    // Offset in firing direction
+    // Position at gun tip
+    this.muzzleFlashLight.position.copy(entity.mesh.position);
+    this.muzzleFlashLight.position.y += 0.5;
     const forward = new THREE.Vector3(0, 0, 0.8);
     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), entity.mesh.rotation.y);
-    light.position.add(forward);
+    this.muzzleFlashLight.position.add(forward);
 
-    this.renderer.addToScene(light);
-
-    // Fade out light quickly
-    let intensity = 3;
-    const fadeLight = () => {
-      intensity *= 0.65;
-      light.intensity = intensity;
-      if (intensity > 0.05) {
-        requestAnimationFrame(fadeLight);
-      } else {
-        this.renderer.removeFromScene(light);
-        light.dispose();
-      }
-    };
-    requestAnimationFrame(fadeLight);
+    // Reset intensity (will fade in updateVisuals)
+    this.muzzleFlashIntensity = 4;
+    this.muzzleFlashLight.intensity = this.muzzleFlashIntensity;
   }
 
   // ============================================================================
