@@ -19,8 +19,7 @@ import type { MapData, Vec3, EnemyType } from '@shared/types';
 import { TILE_SIZE, COLORS } from '@shared/constants';
 import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 import { TargetingLaserMaterial } from './LaserMaterial';
-import { TardisFactory, TardisInstance } from './TardisFactory';
-import { MapDecorations } from './MapDecorations';
+import { MapRenderer } from './MapRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
 
 // ============================================================================
@@ -57,17 +56,8 @@ export class Renderer {
   // Extracted particle system
   private particleSystem!: ParticleSystem;
 
-  // Torch lights for flickering
-  private torchLights: THREE.PointLight[] = [];
-  private torchFlames: THREE.Mesh[] = [];
-
-  // TARDIS instance
-  private tardis: TardisInstance | null = null;
-  private isWaveTransition = false;
-
-  // Power cells
-  private powerCells: Map<string, THREE.Group> = new Map();
-  private powerCellIds: string[] = [];
+  // Extracted map renderer
+  private mapRenderer!: MapRenderer;
 
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
@@ -136,6 +126,14 @@ export class Renderer {
 
       // Initialize particle system
       this.particleSystem = new ParticleSystem(this.scene);
+
+      // Initialize map renderer
+      this.mapRenderer = new MapRenderer({
+        scene: this.scene,
+        getGeometry: (name) => this.geometries.get(name),
+        getMaterial: (name) => this.materials.get(name),
+        clearDecals: () => this.particleSystem.clearDecals(),
+      });
 
       this.initialized = true;
       console.log('WebGPU Renderer initialized');
@@ -343,461 +341,51 @@ export class Renderer {
   }
 
   buildMap(mapData: MapData): void {
-    // Clear existing map objects
-    this.scene.children
-      .filter((obj) => obj.userData.mapObject)
-      .forEach((obj) => this.scene.remove(obj));
-
-    // Clear torch arrays
-    this.torchLights = [];
-    this.torchFlames = [];
-
-    // Clear blood decals from previous map
-    if (this.particleSystem) {
-      this.particleSystem.clearDecals();
-    }
-
-    // Track torch count for performance limit
-    let torchCount = 0;
-    const MAX_TORCHES = 20;
-
-    const floorGeom = this.geometries.get('floor')!;
-    const wallGeom = this.geometries.get('wall')!;
-    const debrisGeom = this.geometries.get('debris')!;
-    const puddleGeom = this.geometries.get('puddle')!;
-
-    const floorMat = this.materials.get('floor')!;
-    const wallMat = this.materials.get('wall')!;
-    const debrisMat = this.materials.get('debris')!;
-    const puddleMat = this.materials.get('puddle')!;
-
-    // Use instanced meshes for performance
-    const floorCount = mapData.tiles.flat().filter((t) => t.type === 'floor').length;
-    const wallCount = mapData.tiles.flat().filter((t) => t.type === 'wall').length;
-
-    const floorInstanced = new THREE.InstancedMesh(floorGeom, floorMat, floorCount);
-    const wallInstanced = new THREE.InstancedMesh(wallGeom, wallMat, wallCount);
-
-    floorInstanced.receiveShadow = true;
-    wallInstanced.castShadow = true;
-    wallInstanced.receiveShadow = true;
-
-    floorInstanced.userData.mapObject = true;
-    wallInstanced.userData.mapObject = true;
-
-    let floorIndex = 0;
-    let wallIndex = 0;
-    const matrix = new THREE.Matrix4();
-
-    for (let y = 0; y < mapData.height; y++) {
-      for (let x = 0; x < mapData.width; x++) {
-        const tile = mapData.tiles[y][x];
-        const worldX = x * TILE_SIZE;
-        const worldZ = y * TILE_SIZE;
-
-        if (tile.type === 'floor') {
-          matrix.setPosition(worldX, 0, worldZ);
-          floorInstanced.setMatrixAt(floorIndex++, matrix);
-
-          // Add debris decorations
-          if (Math.random() < 0.05) {
-            const debris = new THREE.Mesh(debrisGeom, debrisMat);
-            debris.position.set(
-              worldX + (Math.random() - 0.5) * TILE_SIZE * 0.8,
-              0.1,
-              worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.8
-            );
-            debris.rotation.y = Math.random() * Math.PI * 2;
-            debris.userData.mapObject = true;
-            this.scene.add(debris);
-          }
-
-          // Add cult floor symbols (rare)
-          if (Math.random() < 0.015) {
-            this.addFloorSymbol(worldX, worldZ);
-          }
-        } else if (tile.type === 'wall') {
-          matrix.setPosition(worldX, TILE_SIZE / 2, worldZ);
-          wallInstanced.setMatrixAt(wallIndex++, matrix);
-
-          // Maybe add torch on walls adjacent to floor
-          if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
-            // Check if adjacent to floor
-            const hasFloorRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'floor';
-            const hasFloorLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'floor';
-            const hasFloorDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'floor';
-            const hasFloorUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'floor';
-
-            if (hasFloorRight) {
-              this.addTorch(worldX, worldZ, 'x', 1);
-              torchCount++;
-            } else if (hasFloorLeft) {
-              this.addTorch(worldX, worldZ, 'x', -1);
-              torchCount++;
-            } else if (hasFloorDown) {
-              this.addTorch(worldX, worldZ, 'z', 1);
-              torchCount++;
-            } else if (hasFloorUp) {
-              this.addTorch(worldX, worldZ, 'z', -1);
-              torchCount++;
-            }
-          }
-        } else if (tile.type === 'puddle') {
-          // Floor under puddle
-          matrix.setPosition(worldX, 0, worldZ);
-          floorInstanced.setMatrixAt(floorIndex++, matrix);
-
-          const puddle = new THREE.Mesh(puddleGeom, puddleMat);
-          puddle.position.set(worldX, 0.06, worldZ);
-          puddle.userData.mapObject = true;
-          this.scene.add(puddle);
-        }
-      }
-    }
-
-    floorInstanced.instanceMatrix.needsUpdate = true;
-    wallInstanced.instanceMatrix.needsUpdate = true;
-
-    this.scene.add(floorInstanced);
-    this.scene.add(wallInstanced);
-
-    // Create cult altars
-    for (const pos of mapData.altarPositions) {
-      this.createAltar(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
-    }
-
-    // Create TARDIS at designated position (objective room)
-    if (mapData.tardisPosition) {
-      this.spawnTardis(
-        mapData.tardisPosition.x * TILE_SIZE,
-        mapData.tardisPosition.y * TILE_SIZE
-      );
-    }
-
-    // Create power cells at designated positions
-    for (const pos of mapData.cellPositions) {
-      this.createPowerCell(pos.x * TILE_SIZE, pos.y * TILE_SIZE);
-    }
-
-    // Add environmental decorations
-    this.placeDecorations(mapData);
-  }
-
-  private placeDecorations(mapData: MapData): void {
-    const spawnRoom = mapData.rooms[0];
-
-    // Place meat grinder in a larger room (not spawn room)
-    for (let i = 1; i < mapData.rooms.length; i++) {
-      const room = mapData.rooms[i];
-      if (room.width >= 6 && room.height >= 6 && Math.random() < 0.4) {
-        const centerX = (room.x + room.width / 2) * TILE_SIZE;
-        const centerZ = (room.y + room.height / 2) * TILE_SIZE;
-        const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
-        this.scene.add(grinder);
-        break; // Only one grinder per map
-      }
-    }
-
-    // Place ritual circles near altars
-    for (const altar of mapData.altarPositions) {
-      if (Math.random() < 0.5) {
-        const circle = MapDecorations.createRitualCircle(
-          altar.x * TILE_SIZE,
-          altar.y * TILE_SIZE
-        );
-        // Offset slightly so it's around the altar
-        circle.position.x += (Math.random() - 0.5) * 2;
-        circle.position.z += (Math.random() - 0.5) * 2;
-        this.scene.add(circle);
-      }
-    }
-
-    // Scatter decorations across floor tiles
-    for (let y = 0; y < mapData.height; y++) {
-      for (let x = 0; x < mapData.width; x++) {
-        const tile = mapData.tiles[y][x];
-        if (tile.type !== 'floor') continue;
-
-        // Skip spawn room for most decorations
-        const inSpawnRoom = spawnRoom &&
-          x >= spawnRoom.x && x < spawnRoom.x + spawnRoom.width &&
-          y >= spawnRoom.y && y < spawnRoom.y + spawnRoom.height;
-
-        const worldX = x * TILE_SIZE;
-        const worldZ = y * TILE_SIZE;
-
-        // Meat piles (more common near altars)
-        const nearAltar = mapData.altarPositions.some(
-          a => Math.abs(a.x - x) < 4 && Math.abs(a.y - y) < 4
-        );
-        if (Math.random() < (nearAltar ? 0.08 : 0.02)) {
-          const pile = MapDecorations.createMeatPile(
-            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.6,
-            0,
-            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.6
-          );
-          this.scene.add(pile);
-        }
-
-        // Bone piles (scattered)
-        if (!inSpawnRoom && Math.random() < 0.015) {
-          const bones = MapDecorations.createBonePile(
-            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.5,
-            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.5
-          );
-          this.scene.add(bones);
-        }
-
-        // Crates and barrels (in corners and edges)
-        if (!inSpawnRoom && Math.random() < 0.02) {
-          if (Math.random() > 0.5) {
-            const crate = MapDecorations.createCrate(worldX, worldZ);
-            this.scene.add(crate);
-          } else {
-            const tipped = Math.random() < 0.3;
-            const barrel = MapDecorations.createBarrel(worldX, worldZ, tipped);
-            this.scene.add(barrel);
-          }
-        }
-
-        // Rat holes on walls adjacent to floor
-        if (!inSpawnRoom && Math.random() < 0.03) {
-          // Check adjacent walls
-          const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
-          const hasWallLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'wall';
-          const hasWallDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall';
-          const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
-
-          if (hasWallRight) {
-            const hole = MapDecorations.createRatHole(worldX + TILE_SIZE, worldZ, 'x', -1);
-            this.scene.add(hole);
-          } else if (hasWallLeft) {
-            const hole = MapDecorations.createRatHole(worldX - TILE_SIZE, worldZ, 'x', 1);
-            this.scene.add(hole);
-          } else if (hasWallDown) {
-            const hole = MapDecorations.createRatHole(worldX, worldZ + TILE_SIZE, 'z', -1);
-            this.scene.add(hole);
-          } else if (hasWallUp) {
-            const hole = MapDecorations.createRatHole(worldX, worldZ - TILE_SIZE, 'z', 1);
-            this.scene.add(hole);
-          }
-        }
-      }
-    }
+    this.mapRenderer.buildMap(mapData);
   }
 
   // ============================================================================
-  // TARDIS System
+  // TARDIS System (delegated to MapRenderer)
   // ============================================================================
-
-  private spawnTardis(x: number, z: number): void {
-    // Remove existing TARDIS if any
-    if (this.tardis) {
-      this.scene.remove(this.tardis.group);
-    }
-
-    // Create new TARDIS at spawn position
-    const position = new THREE.Vector3(x, 0, z);
-    this.tardis = TardisFactory.create(position);
-    this.tardis.group.userData.mapObject = true;
-
-    // Start with materialization effect
-    TardisFactory.startMaterialization(this.tardis);
-
-    this.scene.add(this.tardis.group);
-  }
 
   updateTardis(dt: number): void {
-    if (!this.tardis) return;
-
-    // Update materialization effect
-    if (this.tardis.materializing) {
-      TardisFactory.updateMaterialization(this.tardis, dt);
-    }
-
-    // Update lamp pulsing
-    TardisFactory.updateLampPulse(this.tardis, this.time, this.isWaveTransition);
+    this.mapRenderer.updateTardis(dt);
   }
 
   setWaveTransition(active: boolean): void {
-    this.isWaveTransition = active;
+    this.mapRenderer.setWaveTransition(active);
   }
 
   getTardisPosition(): Vec3 | null {
-    if (!this.tardis) return null;
-    const pos = this.tardis.group.position;
-    return { x: pos.x, y: pos.y, z: pos.z };
+    return this.mapRenderer.getTardisPosition();
   }
 
   setTardisPowerLevel(level: number): void {
-    if (this.tardis) {
-      // Update TARDIS lamp brightness based on power level
-      const brightness = level / 3;
-      TardisFactory.setPowerLevel(this.tardis, brightness);
-    }
+    this.mapRenderer.setTardisPowerLevel(level);
   }
 
   // ============================================================================
-  // Power Cell System
+  // Power Cell System (delegated to MapRenderer)
   // ============================================================================
-
-  private createPowerCell(x: number, z: number): string {
-    const cellId = `cell_${this.powerCellIds.length}`;
-    const cellGroup = new THREE.Group();
-    cellGroup.position.set(x, 0, z);
-
-    // Core crystal (cyan glowing orb)
-    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const core = new THREE.Mesh(coreGeom, coreMat);
-    core.position.y = 0.8;
-    core.name = 'core';
-    cellGroup.add(core);
-
-    // Outer glow shell
-    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.3,
-    });
-    const glow = new THREE.Mesh(glowGeom, glowMat);
-    glow.position.y = 0.8;
-    glow.name = 'glow';
-    cellGroup.add(glow);
-
-    // Base pedestal
-    const baseGeom = new THREE.CylinderGeometry(0.3, 0.4, 0.2, 8);
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x334455 });
-    const base = new THREE.Mesh(baseGeom, baseMat);
-    base.position.y = 0.1;
-    cellGroup.add(base);
-
-    // Point light for glow effect
-    const light = new THREE.PointLight(0x00ffff, 1, 6);
-    light.position.y = 0.8;
-    cellGroup.add(light);
-
-    // Store metadata
-    cellGroup.userData.mapObject = true;
-    cellGroup.userData.cellId = cellId;
-    cellGroup.userData.baseY = 0.8;
-
-    this.scene.add(cellGroup);
-    this.powerCells.set(cellId, cellGroup);
-    this.powerCellIds.push(cellId);
-
-    return cellId;
-  }
 
   updatePowerCells(): void {
-    const pulse = Math.sin(this.time * 3) * 0.5 + 0.5;
-
-    for (const [, cellGroup] of this.powerCells) {
-      // Rotate and bob
-      const core = cellGroup.getObjectByName('core') as THREE.Mesh;
-      const glow = cellGroup.getObjectByName('glow') as THREE.Mesh;
-
-      if (core && glow) {
-        core.rotation.y += 0.02;
-        glow.rotation.y -= 0.01;
-
-        // Pulsing scale
-        const scale = 1 + pulse * 0.1;
-        glow.scale.setScalar(scale);
-
-        // Bob up and down
-        const baseY = cellGroup.userData.baseY || 0.8;
-        core.position.y = baseY + Math.sin(this.time * 2) * 0.1;
-        glow.position.y = core.position.y;
-      }
-
-      // Update light intensity
-      const light = cellGroup.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight;
-      if (light) {
-        light.intensity = 0.8 + pulse * 0.4;
-      }
-    }
+    this.mapRenderer.updatePowerCells();
   }
 
   removePowerCell(cellId: string): void {
-    const cellGroup = this.powerCells.get(cellId);
-    if (cellGroup) {
-      this.scene.remove(cellGroup);
-      this.powerCells.delete(cellId);
-    }
+    this.mapRenderer.removePowerCell(cellId);
   }
 
-  /**
-   * Add a power cell at a specific position (for dropped cells)
-   */
   addPowerCellAt(cellId: string, x: number, z: number): void {
-    // If cell already exists, just move it
-    const existing = this.powerCells.get(cellId);
-    if (existing) {
-      existing.position.set(x, 0, z);
-      this.scene.add(existing);
-      return;
-    }
-
-    // Create new cell visual
-    const cellGroup = new THREE.Group();
-    cellGroup.position.set(x, 0, z);
-
-    // Core crystal (cyan glowing orb)
-    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const core = new THREE.Mesh(coreGeom, coreMat);
-    core.position.y = 0.8;
-    core.name = 'core';
-    cellGroup.add(core);
-
-    // Outer glow shell
-    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
-    const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.3,
-    });
-    const glow = new THREE.Mesh(glowGeom, glowMat);
-    glow.position.y = 0.8;
-    glow.name = 'glow';
-    cellGroup.add(glow);
-
-    // Point light for glow effect
-    const light = new THREE.PointLight(0x00ffff, 1, 6);
-    light.position.y = 0.8;
-    cellGroup.add(light);
-
-    // Store metadata
-    cellGroup.userData.mapObject = true;
-    cellGroup.userData.cellId = cellId;
-    cellGroup.userData.baseY = 0.8;
-
-    this.scene.add(cellGroup);
-    this.powerCells.set(cellId, cellGroup);
+    this.mapRenderer.addPowerCellAt(cellId, x, z);
   }
 
   getPowerCellPosition(cellId: string): Vec3 | null {
-    const cellGroup = this.powerCells.get(cellId);
-    if (!cellGroup) return null;
-    return {
-      x: cellGroup.position.x,
-      y: cellGroup.position.y,
-      z: cellGroup.position.z,
-    };
+    return this.mapRenderer.getPowerCellPosition(cellId);
   }
 
   getPowerCellIds(): string[] {
-    return [...this.powerCellIds];
+    return this.mapRenderer.getPowerCellIds();
   }
 
   updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {
@@ -862,6 +450,9 @@ export class Renderer {
     // Update time uniform for animated shaders (laser, etc.)
     this.time += 0.016; // ~60fps delta
     this.timeUniform.value = this.time;
+
+    // Pass time to map renderer for animations
+    this.mapRenderer.updateTime(this.time);
 
     if (this.usePostProcessing && this.postProcessing) {
       this.postProcessing.render();
@@ -943,136 +534,11 @@ export class Renderer {
   }
 
   // ============================================================================
-  // Cult Altar System
+  // Torch System (delegated to MapRenderer)
   // ============================================================================
 
-  private createAltar(x: number, z: number): void {
-    // Stone base (dark stone pedestal)
-    const baseGeom = new THREE.BoxGeometry(1.6, 0.4, 1.6);
-    const baseMat = new THREE.MeshLambertMaterial({ color: COLORS.altarStone });
-    const base = new THREE.Mesh(baseGeom, baseMat);
-    base.position.set(x, 0.2, z);
-    base.castShadow = true;
-    base.receiveShadow = true;
-    base.userData.mapObject = true;
-    this.scene.add(base);
-
-    // Upper tier (smaller)
-    const topGeom = new THREE.BoxGeometry(1.0, 0.25, 1.0);
-    const top = new THREE.Mesh(topGeom, baseMat);
-    top.position.set(x, 0.525, z);
-    top.castShadow = true;
-    top.userData.mapObject = true;
-    this.scene.add(top);
-
-    // Meatball emblem on top
-    const emblemMat = this.materials.get('emblem')!;
-    const emblemGeom = new THREE.PlaneGeometry(0.7, 0.7);
-    const emblem = new THREE.Mesh(emblemGeom, emblemMat);
-    emblem.position.set(x, 0.66, z);
-    emblem.rotation.x = -Math.PI / 2;
-    emblem.userData.mapObject = true;
-    this.scene.add(emblem);
-
-    // Four candles at corners
-    const candlePositions = [
-      { dx: -0.6, dz: -0.6 },
-      { dx: 0.6, dz: -0.6 },
-      { dx: -0.6, dz: 0.6 },
-      { dx: 0.6, dz: 0.6 },
-    ];
-
-    const candleGeom = new THREE.CylinderGeometry(0.06, 0.08, 0.3, 6);
-    const candleMat = new THREE.MeshLambertMaterial({ color: COLORS.altarCandle });
-    const flameGeom = new THREE.ConeGeometry(0.05, 0.12, 5);
-    const flameMat = new THREE.MeshBasicMaterial({ color: COLORS.candleFlame });
-
-    for (const pos of candlePositions) {
-      // Candle body
-      const candle = new THREE.Mesh(candleGeom, candleMat);
-      candle.position.set(x + pos.dx, 0.55, z + pos.dz);
-      candle.userData.mapObject = true;
-      this.scene.add(candle);
-
-      // Candle flame
-      const flame = new THREE.Mesh(flameGeom, flameMat);
-      flame.position.set(x + pos.dx, 0.76, z + pos.dz);
-      flame.userData.mapObject = true;
-      flame.userData.baseY = 0.76;
-      flame.userData.flickerTime = Math.random() * Math.PI * 2;
-      this.scene.add(flame);
-      this.torchFlames.push(flame);
-
-      // Small point light per candle
-      const light = new THREE.PointLight(0xff8844, 0.3, 4);
-      light.position.set(x + pos.dx, 0.8, z + pos.dz);
-      light.userData.mapObject = true;
-      light.userData.baseIntensity = 0.3;
-      light.userData.flickerTime = Math.random() * Math.PI * 2;
-      this.scene.add(light);
-      this.torchLights.push(light);
-    }
-  }
-
-  // ============================================================================
-  // Torch System
-  // ============================================================================
-
-  private addTorch(x: number, z: number, direction: 'x' | 'z', sign: number): void {
-    // Offset from wall
-    const offsetX = direction === 'x' ? sign * 0.3 : 0;
-    const offsetZ = direction === 'z' ? sign * 0.3 : 0;
-
-    // Torch holder
-    const holderGeom = new THREE.CylinderGeometry(0.05, 0.08, 0.3, 6);
-    const holderMat = new THREE.MeshLambertMaterial({ color: COLORS.torchHolder });
-    const holder = new THREE.Mesh(holderGeom, holderMat);
-    holder.position.set(x + offsetX, TILE_SIZE * 0.6, z + offsetZ);
-    holder.userData.mapObject = true;
-    this.scene.add(holder);
-
-    // Flame (cone)
-    const flameGeom = new THREE.ConeGeometry(0.12, 0.3, 6);
-    const flameMat = new THREE.MeshBasicMaterial({ color: COLORS.torch });
-    const flame = new THREE.Mesh(flameGeom, flameMat);
-    flame.position.set(x + offsetX, TILE_SIZE * 0.8, z + offsetZ);
-    flame.userData.mapObject = true;
-    flame.userData.baseY = TILE_SIZE * 0.8;
-    flame.userData.flickerTime = Math.random() * Math.PI * 2;
-    this.scene.add(flame);
-    this.torchFlames.push(flame);
-
-    // Point light
-    const light = new THREE.PointLight(0xff6633, 0.6, 10);
-    light.position.set(x + offsetX, TILE_SIZE * 0.9, z + offsetZ);
-    light.userData.mapObject = true;
-    light.userData.baseIntensity = 0.6;
-    light.userData.flickerTime = Math.random() * Math.PI * 2;
-    this.scene.add(light);
-    this.torchLights.push(light);
-  }
-
-  updateTorches(_time: number): void {
-    // Update torch lights with flickering
-    for (const light of this.torchLights) {
-      light.userData.flickerTime += 0.15;
-      const t = light.userData.flickerTime;
-      const flicker =
-        0.7 +
-        Math.sin(t * 3) * 0.15 +
-        Math.sin(t * 7) * 0.1 +
-        Math.random() * 0.05;
-      light.intensity = light.userData.baseIntensity * flicker;
-    }
-
-    // Update flame meshes
-    for (const flame of this.torchFlames) {
-      flame.userData.flickerTime += 0.1;
-      const t = flame.userData.flickerTime;
-      // Subtle movement
-      flame.position.y = flame.userData.baseY + Math.sin(t * 5) * 0.02;
-      flame.scale.y = 1 + Math.sin(t * 8) * 0.1;
-    }
+  updateTorches(): void {
+    this.mapRenderer.updateTorches();
   }
 
   // ============================================================================
@@ -1081,26 +547,5 @@ export class Renderer {
 
   spawnBloodDecal(x: number, z: number, size: number = 1): void {
     this.particleSystem.spawnBloodDecal(x, z, size);
-  }
-
-  // ============================================================================
-  // Cult Floor Symbols
-  // ============================================================================
-
-  private addFloorSymbol(x: number, z: number): void {
-    const geom = new THREE.PlaneGeometry(1.5, 1.5);
-    const emblemMat = this.materials.get('emblem') as THREE.MeshBasicMaterial;
-
-    const mat = new THREE.MeshBasicMaterial({
-      map: emblemMat.map,
-      transparent: true,
-      opacity: 0.25,
-    });
-    const symbol = new THREE.Mesh(geom, mat);
-    symbol.rotation.x = -Math.PI / 2;
-    symbol.rotation.z = Math.random() * Math.PI * 2;
-    symbol.position.set(x, 0.01, z);
-    symbol.userData.mapObject = true;
-    this.scene.add(symbol);
   }
 }
