@@ -207,6 +207,9 @@ export class LocalGameLoop {
     // Wave management (delegated to WaveManager)
     this.waveManager.update(dt);
 
+    // Update wall occlusion (hide walls that block view of player/enemies)
+    this.updateWallOcclusion();
+
     // Update UI
     const waveState = this.waveManager.getState();
     this.ui.update({
@@ -927,4 +930,28 @@ export class LocalGameLoop {
     });
   }
 
+  // ============================================================================
+  // Wall Occlusion
+  // ============================================================================
+
+  /**
+   * Update wall visibility to prevent entities from being hidden behind walls.
+   * Collects all entity positions and passes them to the renderer for occlusion culling.
+   */
+  private updateWallOcclusion(): void {
+    const entityPositions: Array<{ x: number; z: number }> = [];
+
+    // Add player position
+    if (this.player && !this.player.isDead) {
+      entityPositions.push({ x: this.player.position.x, z: this.player.position.z });
+    }
+
+    // Add enemy positions
+    for (const enemy of this.enemies.values()) {
+      entityPositions.push({ x: enemy.position.x, z: enemy.position.z });
+    }
+
+    // Update wall occlusion in renderer
+    this.renderer.updateWallOcclusion(entityPositions);
+  }
 }

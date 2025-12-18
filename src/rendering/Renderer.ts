@@ -543,6 +543,22 @@ export class Renderer {
   }
 
   // ============================================================================
+  // Wall Occlusion System (delegated to MapRenderer)
+  // ============================================================================
+
+  /**
+   * Update wall visibility based on entity positions.
+   * Walls that would occlude entities from isometric camera are hidden.
+   */
+  updateWallOcclusion(entityPositions: Array<{ x: number; z: number }>): void {
+    this.mapRenderer.updateWallOcclusion(entityPositions);
+  }
+
+  resetWallOcclusion(): void {
+    this.mapRenderer.resetWallOcclusion();
+  }
+
+  // ============================================================================
   // Blood Decals (delegated to ParticleSystem)
   // ============================================================================
 

@@ -18,6 +18,14 @@ export interface MapRendererDependencies {
   clearDecals(): void;
 }
 
+// Wall position data for occlusion detection
+interface WallInstance {
+  index: number;
+  worldX: number;
+  worldZ: number;
+  hidden: boolean;
+}
+
 export class MapRenderer {
   private deps: MapRendererDependencies;
 
@@ -36,6 +44,12 @@ export class MapRenderer {
   // Time tracking for animations
   private time = 0;
 
+  // Wall occlusion system
+  private wallInstanced: THREE.InstancedMesh | null = null;
+  private wallPositions: WallInstance[] = [];
+  private readonly hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+  private readonly visibleMatrix = new THREE.Matrix4();
+
   constructor(deps: MapRendererDependencies) {
     this.deps = deps;
   }
@@ -53,6 +67,10 @@ export class MapRenderer {
     // Clear torch arrays
     this.torchLights = [];
     this.torchFlames = [];
+
+    // Clear wall occlusion data
+    this.wallInstanced = null;
+    this.wallPositions = [];
 
     // Clear blood decals from previous map
     this.deps.clearDecals();
@@ -76,14 +94,14 @@ export class MapRenderer {
     const wallCount = mapData.tiles.flat().filter((t) => t.type === 'wall').length;
 
     const floorInstanced = new THREE.InstancedMesh(floorGeom, floorMat, floorCount);
-    const wallInstanced = new THREE.InstancedMesh(wallGeom, wallMat, wallCount);
+    this.wallInstanced = new THREE.InstancedMesh(wallGeom, wallMat, wallCount);
 
     floorInstanced.receiveShadow = true;
-    wallInstanced.castShadow = true;
-    wallInstanced.receiveShadow = true;
+    this.wallInstanced.castShadow = true;
+    this.wallInstanced.receiveShadow = true;
 
     floorInstanced.userData.mapObject = true;
-    wallInstanced.userData.mapObject = true;
+    this.wallInstanced.userData.mapObject = true;
 
     let floorIndex = 0;
     let wallIndex = 0;
@@ -118,7 +136,16 @@ export class MapRenderer {
           }
         } else if (tile.type === 'wall') {
           matrix.setPosition(worldX, TILE_SIZE / 2, worldZ);
-          wallInstanced.setMatrixAt(wallIndex++, matrix);
+          this.wallInstanced!.setMatrixAt(wallIndex, matrix);
+
+          // Store wall position for occlusion detection
+          this.wallPositions.push({
+            index: wallIndex,
+            worldX,
+            worldZ,
+            hidden: false,
+          });
+          wallIndex++;
 
           // Maybe add torch on walls adjacent to floor
           if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
@@ -156,10 +183,10 @@ export class MapRenderer {
     }
 
     floorInstanced.instanceMatrix.needsUpdate = true;
-    wallInstanced.instanceMatrix.needsUpdate = true;
+    this.wallInstanced.instanceMatrix.needsUpdate = true;
 
     this.deps.scene.add(floorInstanced);
-    this.deps.scene.add(wallInstanced);
+    this.deps.scene.add(this.wallInstanced);
 
     // Create cult altars
     for (const pos of mapData.altarPositions) {
@@ -657,5 +684,94 @@ export class MapRenderer {
 
   updateTime(time: number): void {
     this.time = time;
+  }
+
+  // ============================================================================
+  // Wall Occlusion System (for isometric camera)
+  // ============================================================================
+
+  /**
+   * Update wall visibility based on entity positions.
+   * Walls that would occlude entities are hidden (cutaway effect).
+   *
+   * In isometric view (camera at ~45 degrees looking down from top-right),
+   * walls occlude entities when the wall is "between" the camera and entity.
+   * This means walls at (entityX + offset, entityZ + offset) relative to entity position.
+   *
+   * @param entityPositions Array of entity world positions {x, z}
+   * @param occlusionRadius How far around each entity to check for occluding walls
+   */
+  updateWallOcclusion(
+    entityPositions: Array<{ x: number; z: number }>,
+    occlusionRadius: number = TILE_SIZE * 2
+  ): void {
+    if (!this.wallInstanced || this.wallPositions.length === 0) return;
+
+    // Track which walls should be hidden
+    const wallsToHide = new Set<number>();
+
+    // For each entity, find walls that would occlude it from isometric camera
+    // Camera looks from +X +Z direction toward -X -Z (top-right to bottom-left)
+    // So walls with HIGHER X and HIGHER Z than an entity can occlude it
+    for (const entity of entityPositions) {
+      for (const wall of this.wallPositions) {
+        // Check if wall is in the "occlusion zone" relative to entity
+        // Wall occludes if it's roughly in the direction the camera is looking from
+        const dx = wall.worldX - entity.x;
+        const dz = wall.worldZ - entity.z;
+
+        // Wall is behind entity from camera's POV if dx > 0 AND dz > 0
+        // (camera looks from +X +Z quadrant)
+        // Also check if wall is close enough to actually occlude
+        const distSq = dx * dx + dz * dz;
+        const isInOcclusionZone = dx > -TILE_SIZE && dx < occlusionRadius &&
+                                   dz > -TILE_SIZE && dz < occlusionRadius;
+
+        if (isInOcclusionZone && distSq < occlusionRadius * occlusionRadius) {
+          wallsToHide.add(wall.index);
+        }
+      }
+    }
+
+    // Update wall visibility
+    let anyChanged = false;
+    for (const wall of this.wallPositions) {
+      const shouldHide = wallsToHide.has(wall.index);
+
+      if (shouldHide !== wall.hidden) {
+        wall.hidden = shouldHide;
+        anyChanged = true;
+
+        if (shouldHide) {
+          // Scale to 0 to hide
+          this.wallInstanced.setMatrixAt(wall.index, this.hiddenMatrix);
+        } else {
+          // Restore visible position
+          this.visibleMatrix.setPosition(wall.worldX, TILE_SIZE / 2, wall.worldZ);
+          this.wallInstanced.setMatrixAt(wall.index, this.visibleMatrix);
+        }
+      }
+    }
+
+    if (anyChanged) {
+      this.wallInstanced.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Show all walls (reset occlusion)
+   */
+  resetWallOcclusion(): void {
+    if (!this.wallInstanced) return;
+
+    for (const wall of this.wallPositions) {
+      if (wall.hidden) {
+        wall.hidden = false;
+        this.visibleMatrix.setPosition(wall.worldX, TILE_SIZE / 2, wall.worldZ);
+        this.wallInstanced.setMatrixAt(wall.index, this.visibleMatrix);
+      }
+    }
+
+    this.wallInstanced.instanceMatrix.needsUpdate = true;
   }
 }
