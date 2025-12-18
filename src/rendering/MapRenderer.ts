@@ -75,37 +75,55 @@ export class MapRenderer {
     // Clear blood decals from previous map
     this.deps.clearDecals();
 
-    // Track torch count for performance limit
-    let torchCount = 0;
-    const MAX_TORCHES = 20;
-
     const floorGeom = this.deps.getGeometry('floor')!;
-    const wallGeom = this.deps.getGeometry('wall')!;
     const debrisGeom = this.deps.getGeometry('debris')!;
     const puddleGeom = this.deps.getGeometry('puddle')!;
+    const fencePostGeom = this.deps.getGeometry('fencePost')!;
+    const fencePlankXGeom = this.deps.getGeometry('fencePlankX')!;
+    const fencePlankZGeom = this.deps.getGeometry('fencePlankZ')!;
 
     const floorMat = this.deps.getMaterial('floor')!;
-    const wallMat = this.deps.getMaterial('wall')!;
     const debrisMat = this.deps.getMaterial('debris')!;
     const puddleMat = this.deps.getMaterial('puddle')!;
+    const fencePostMat = this.deps.getMaterial('fencePost')!;
+    const fencePlankMat = this.deps.getMaterial('fencePlank')!;
 
-    // Use instanced meshes for performance
-    const floorCount = mapData.tiles.flat().filter((t) => t.type === 'floor').length;
+    // Count tiles for instancing
+    const floorCount = mapData.tiles.flat().filter((t) => t.type === 'floor' || t.type === 'puddle').length;
     const wallCount = mapData.tiles.flat().filter((t) => t.type === 'wall').length;
 
+    // Floor instancing (grass)
     const floorInstanced = new THREE.InstancedMesh(floorGeom, floorMat, floorCount);
-    this.wallInstanced = new THREE.InstancedMesh(wallGeom, wallMat, wallCount);
-
     floorInstanced.receiveShadow = true;
-    this.wallInstanced.castShadow = true;
-    this.wallInstanced.receiveShadow = true;
-
     floorInstanced.userData.mapObject = true;
-    this.wallInstanced.userData.mapObject = true;
+
+    // Fence posts instancing (estimate max 4 posts per wall tile that's adjacent to floor)
+    const maxPosts = wallCount * 2;
+    const postInstanced = new THREE.InstancedMesh(fencePostGeom, fencePostMat, maxPosts);
+    postInstanced.castShadow = true;
+    postInstanced.receiveShadow = true;
+    postInstanced.userData.mapObject = true;
+
+    // Fence planks (3 horizontal planks per fence section, estimate)
+    const maxPlanksX = wallCount * 3;
+    const maxPlanksZ = wallCount * 3;
+    const plankXInstanced = new THREE.InstancedMesh(fencePlankXGeom, fencePlankMat, maxPlanksX);
+    const plankZInstanced = new THREE.InstancedMesh(fencePlankZGeom, fencePlankMat, maxPlanksZ);
+    plankXInstanced.castShadow = true;
+    plankZInstanced.castShadow = true;
+    plankXInstanced.userData.mapObject = true;
+    plankZInstanced.userData.mapObject = true;
+
+    // We still need wall data for occlusion (but walls are invisible now)
+    this.wallInstanced = null; // No visible walls - fences instead
 
     let floorIndex = 0;
+    let postIndex = 0;
+    let plankXIndex = 0;
+    let plankZIndex = 0;
     let wallIndex = 0;
     const matrix = new THREE.Matrix4();
+    const postHeight = TILE_SIZE * 0.9;
 
     for (let y = 0; y < mapData.height; y++) {
       for (let x = 0; x < mapData.width; x++) {
@@ -117,12 +135,12 @@ export class MapRenderer {
           matrix.setPosition(worldX, 0, worldZ);
           floorInstanced.setMatrixAt(floorIndex++, matrix);
 
-          // Add debris decorations
-          if (Math.random() < 0.05) {
+          // Add debris decorations (wood chips/mulch)
+          if (Math.random() < 0.03) {
             const debris = new THREE.Mesh(debrisGeom, debrisMat);
             debris.position.set(
               worldX + (Math.random() - 0.5) * TILE_SIZE * 0.8,
-              0.1,
+              0.06,
               worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.8
             );
             debris.rotation.y = Math.random() * Math.PI * 2;
@@ -130,47 +148,57 @@ export class MapRenderer {
             this.deps.scene.add(debris);
           }
 
-          // Add cult floor symbols (rare)
-          if (Math.random() < 0.015) {
-            this.addFloorSymbol(worldX, worldZ);
-          }
+          // Skip cult floor symbols for outdoor theme
         } else if (tile.type === 'wall') {
-          matrix.setPosition(worldX, TILE_SIZE / 2, worldZ);
-          this.wallInstanced!.setMatrixAt(wallIndex, matrix);
-
           // Store wall position for occlusion detection
           this.wallPositions.push({
-            index: wallIndex,
+            index: wallIndex++,
             worldX,
             worldZ,
             hidden: false,
           });
-          wallIndex++;
 
-          // Maybe add torch on walls adjacent to floor
-          if (torchCount < MAX_TORCHES && Math.random() < 0.06) {
-            // Check if adjacent to floor
-            const hasFloorRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'floor';
-            const hasFloorLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'floor';
-            const hasFloorDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'floor';
-            const hasFloorUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'floor';
+          // Check adjacent tiles to build fence sections
+          const hasFloorRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type !== 'wall';
+          const hasFloorLeft = x > 0 && mapData.tiles[y][x - 1]?.type !== 'wall';
+          const hasFloorDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type !== 'wall';
+          const hasFloorUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type !== 'wall';
 
-            if (hasFloorRight) {
-              this.addTorch(worldX, worldZ, 'x', 1);
-              torchCount++;
-            } else if (hasFloorLeft) {
-              this.addTorch(worldX, worldZ, 'x', -1);
-              torchCount++;
-            } else if (hasFloorDown) {
-              this.addTorch(worldX, worldZ, 'z', 1);
-              torchCount++;
-            } else if (hasFloorUp) {
-              this.addTorch(worldX, worldZ, 'z', -1);
-              torchCount++;
+          // Add fence post at center of wall tile
+          matrix.setPosition(worldX, postHeight / 2, worldZ);
+          postInstanced.setMatrixAt(postIndex++, matrix);
+
+          // Add fence planks toward adjacent floor tiles
+          const plankHeights = [0.3, 0.6, 0.9]; // Three horizontal planks
+
+          if (hasFloorRight) {
+            for (const h of plankHeights) {
+              matrix.setPosition(worldX + TILE_SIZE * 0.45, h, worldZ);
+              plankZInstanced.setMatrixAt(plankZIndex++, matrix);
             }
           }
+          if (hasFloorLeft) {
+            for (const h of plankHeights) {
+              matrix.setPosition(worldX - TILE_SIZE * 0.45, h, worldZ);
+              plankZInstanced.setMatrixAt(plankZIndex++, matrix);
+            }
+          }
+          if (hasFloorDown) {
+            for (const h of plankHeights) {
+              matrix.setPosition(worldX, h, worldZ + TILE_SIZE * 0.45);
+              plankXInstanced.setMatrixAt(plankXIndex++, matrix);
+            }
+          }
+          if (hasFloorUp) {
+            for (const h of plankHeights) {
+              matrix.setPosition(worldX, h, worldZ - TILE_SIZE * 0.45);
+              plankXInstanced.setMatrixAt(plankXIndex++, matrix);
+            }
+          }
+
+          // Skip torches for outdoor theme
         } else if (tile.type === 'puddle') {
-          // Floor under puddle
+          // Floor under puddle (garden pond)
           matrix.setPosition(worldX, 0, worldZ);
           floorInstanced.setMatrixAt(floorIndex++, matrix);
 
@@ -182,11 +210,20 @@ export class MapRenderer {
       }
     }
 
+    // Update instance counts to actual used amounts
+    postInstanced.count = postIndex;
+    plankXInstanced.count = plankXIndex;
+    plankZInstanced.count = plankZIndex;
+
     floorInstanced.instanceMatrix.needsUpdate = true;
-    this.wallInstanced.instanceMatrix.needsUpdate = true;
+    postInstanced.instanceMatrix.needsUpdate = true;
+    plankXInstanced.instanceMatrix.needsUpdate = true;
+    plankZInstanced.instanceMatrix.needsUpdate = true;
 
     this.deps.scene.add(floorInstanced);
-    this.deps.scene.add(this.wallInstanced);
+    this.deps.scene.add(postInstanced);
+    this.deps.scene.add(plankXInstanced);
+    this.deps.scene.add(plankZInstanced);
 
     // Create cult altars
     for (const pos of mapData.altarPositions) {
@@ -597,42 +634,8 @@ export class MapRenderer {
   }
 
   // ============================================================================
-  // Torch System
+  // Torch System (kept for compatibility, but outdoor theme has no torches)
   // ============================================================================
-
-  private addTorch(x: number, z: number, direction: 'x' | 'z', sign: number): void {
-    // Offset from wall
-    const offsetX = direction === 'x' ? sign * 0.3 : 0;
-    const offsetZ = direction === 'z' ? sign * 0.3 : 0;
-
-    // Torch holder
-    const holderGeom = new THREE.CylinderGeometry(0.05, 0.08, 0.3, 6);
-    const holderMat = new THREE.MeshLambertMaterial({ color: COLORS.torchHolder });
-    const holder = new THREE.Mesh(holderGeom, holderMat);
-    holder.position.set(x + offsetX, TILE_SIZE * 0.6, z + offsetZ);
-    holder.userData.mapObject = true;
-    this.deps.scene.add(holder);
-
-    // Flame (cone)
-    const flameGeom = new THREE.ConeGeometry(0.12, 0.3, 6);
-    const flameMat = new THREE.MeshBasicMaterial({ color: COLORS.torch });
-    const flame = new THREE.Mesh(flameGeom, flameMat);
-    flame.position.set(x + offsetX, TILE_SIZE * 0.8, z + offsetZ);
-    flame.userData.mapObject = true;
-    flame.userData.baseY = TILE_SIZE * 0.8;
-    flame.userData.flickerTime = Math.random() * Math.PI * 2;
-    this.deps.scene.add(flame);
-    this.torchFlames.push(flame);
-
-    // Point light
-    const light = new THREE.PointLight(0xff6633, 0.6, 10);
-    light.position.set(x + offsetX, TILE_SIZE * 0.9, z + offsetZ);
-    light.userData.mapObject = true;
-    light.userData.baseIntensity = 0.6;
-    light.userData.flickerTime = Math.random() * Math.PI * 2;
-    this.deps.scene.add(light);
-    this.torchLights.push(light);
-  }
 
   updateTorches(): void {
     // Update torch lights with flickering
@@ -655,27 +658,6 @@ export class MapRenderer {
       flame.position.y = flame.userData.baseY + Math.sin(t * 5) * 0.02;
       flame.scale.y = 1 + Math.sin(t * 8) * 0.1;
     }
-  }
-
-  // ============================================================================
-  // Floor Symbols
-  // ============================================================================
-
-  private addFloorSymbol(x: number, z: number): void {
-    const geom = new THREE.PlaneGeometry(1.5, 1.5);
-    const emblemMat = this.deps.getMaterial('emblem') as THREE.MeshBasicMaterial;
-
-    const mat = new THREE.MeshBasicMaterial({
-      map: emblemMat.map,
-      transparent: true,
-      opacity: 0.25,
-    });
-    const symbol = new THREE.Mesh(geom, mat);
-    symbol.rotation.x = -Math.PI / 2;
-    symbol.rotation.z = Math.random() * Math.PI * 2;
-    symbol.position.set(x, 0.01, z);
-    symbol.userData.mapObject = true;
-    this.deps.scene.add(symbol);
   }
 
   // ============================================================================
