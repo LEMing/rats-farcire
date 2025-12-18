@@ -226,6 +226,40 @@ export class EntityManager {
     laser.position.set(0.25, 0.65, 0.6); // From gun tip
     group.add(laser);
 
+    // === Carrying indicator (power cell above head) ===
+    const carryIndicator = new THREE.Group();
+    carryIndicator.name = 'carryIndicator';
+    carryIndicator.visible = false; // Hidden by default
+    carryIndicator.position.y = 1.8; // Above the Dalek's dome
+
+    // Mini power cell crystal
+    const miniCoreGeom = new THREE.OctahedronGeometry(0.15, 1);
+    const miniCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const miniCore = new THREE.Mesh(miniCoreGeom, miniCoreMat);
+    miniCore.name = 'miniCore';
+    carryIndicator.add(miniCore);
+
+    // Glow shell
+    const miniGlowGeom = new THREE.OctahedronGeometry(0.22, 1);
+    const miniGlowMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.3,
+    });
+    const miniGlow = new THREE.Mesh(miniGlowGeom, miniGlowMat);
+    miniGlow.name = 'miniGlow';
+    carryIndicator.add(miniGlow);
+
+    // Point light
+    const indicatorLight = new THREE.PointLight(0x00ffff, 0.5, 3);
+    carryIndicator.add(indicatorLight);
+
+    group.add(carryIndicator);
+
     group.position.set(state.position.x, state.position.y, state.position.z);
     group.rotation.y = state.rotation;
     group.userData.entityType = 'player';
@@ -548,6 +582,27 @@ export class EntityManager {
 
   updatePlayer(state: PlayerState): void {
     this.updateEntityState(state.id, state.position, state.rotation);
+
+    // Update carrying indicator visibility
+    const entity = this.entities.get(state.id);
+    if (entity) {
+      const indicator = entity.mesh.getObjectByName('carryIndicator');
+      if (indicator) {
+        indicator.visible = state.carryingCellId !== null;
+
+        // Animate the indicator (rotate and bob)
+        if (indicator.visible) {
+          const time = performance.now() * 0.001;
+          const miniCore = indicator.getObjectByName('miniCore');
+          const miniGlow = indicator.getObjectByName('miniGlow');
+          if (miniCore && miniGlow) {
+            miniCore.rotation.y = time * 2;
+            miniGlow.rotation.y = -time * 1.5;
+            indicator.position.y = 1.8 + Math.sin(time * 3) * 0.1;
+          }
+        }
+      }
+    }
   }
 
   updateEnemy(state: EnemyState): void {

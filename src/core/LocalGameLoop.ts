@@ -619,12 +619,12 @@ export class LocalGameLoop {
     this.ui.showNotification('POWER CELL ACQUIRED!', 0x00ffff);
   }
 
-  private handleCellDrop(cellId: string, _position: Vec3): void {
+  private handleCellDrop(cellId: string, position: Vec3): void {
+    // Re-create cell visual at drop position
+    this.renderer.addPowerCellAt(cellId, position.x, position.z);
+
     // Visual feedback
     this.ui.showNotification('CELL DROPPED!', 0xff8800);
-
-    // TODO: Re-create cell in renderer at new position for visual
-    console.log(`Cell ${cellId} dropped`);
   }
 
   private handleCellDelivered(cellNumber: number, totalCells: number): void {

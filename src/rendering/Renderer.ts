@@ -732,6 +732,60 @@ export class Renderer {
     }
   }
 
+  /**
+   * Add a power cell at a specific position (for dropped cells)
+   */
+  addPowerCellAt(cellId: string, x: number, z: number): void {
+    // If cell already exists, just move it
+    const existing = this.powerCells.get(cellId);
+    if (existing) {
+      existing.position.set(x, 0, z);
+      this.scene.add(existing);
+      return;
+    }
+
+    // Create new cell visual
+    const cellGroup = new THREE.Group();
+    cellGroup.position.set(x, 0, z);
+
+    // Core crystal (cyan glowing orb)
+    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    core.position.y = 0.8;
+    core.name = 'core';
+    cellGroup.add(core);
+
+    // Outer glow shell
+    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.3,
+    });
+    const glow = new THREE.Mesh(glowGeom, glowMat);
+    glow.position.y = 0.8;
+    glow.name = 'glow';
+    cellGroup.add(glow);
+
+    // Point light for glow effect
+    const light = new THREE.PointLight(0x00ffff, 1, 6);
+    light.position.y = 0.8;
+    cellGroup.add(light);
+
+    // Store metadata
+    cellGroup.userData.mapObject = true;
+    cellGroup.userData.cellId = cellId;
+    cellGroup.userData.baseY = 0.8;
+
+    this.scene.add(cellGroup);
+    this.powerCells.set(cellId, cellGroup);
+  }
+
   getPowerCellPosition(cellId: string): Vec3 | null {
     const cellGroup = this.powerCells.get(cellId);
     if (!cellGroup) return null;
