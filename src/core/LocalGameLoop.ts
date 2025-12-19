@@ -1092,8 +1092,6 @@ export class LocalGameLoop {
       if (enemy.state === 'dead') continue;
 
       const config = ENEMY_CONFIGS[enemy.enemyType];
-      const enemyPos = { x: enemy.position.x, y: enemy.position.z };
-      const dist = distance(enemyPos, playerPos);
 
       // Apply knockback
       if (enemy.knockbackVelocity && (enemy.knockbackVelocity.x !== 0 || enemy.knockbackVelocity.y !== 0)) {
@@ -1183,17 +1181,22 @@ export class LocalGameLoop {
         radius: config.hitboxRadius,
       });
 
+      // Recalculate distance after all position updates (movement + separation)
+      const finalEnemyPos = { x: enemy.position.x, y: enemy.position.z };
+      const finalDist = distance(finalEnemyPos, playerPos);
+
       // Face movement direction (or player when attacking)
-      if (dist < config.attackRange * 1.5) {
+      if (finalDist < config.attackRange * 1.5) {
         // Close to player - face them for attack
-        enemy.rotation = angleBetween(enemyPos, playerPos);
+        enemy.rotation = angleBetween(finalEnemyPos, playerPos);
       } else if (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.y) > 0.01) {
         // Face movement direction
         enemy.rotation = Math.atan2(moveDir.x, moveDir.y);
       }
 
-      // Attack if in range
-      if (dist < config.attackRange) {
+      // Attack if in range (use minSeparation as effective attack range since enemies can't get closer)
+      const effectiveAttackRange = Math.max(config.attackRange, minSeparation + 0.1);
+      if (finalDist < effectiveAttackRange) {
         enemy.state = 'attacking';
         // Simple melee attack (damage player) - skip if player is dashing with iframes
         if (!this.player.isDashing || !DASH_IFRAMES) {
