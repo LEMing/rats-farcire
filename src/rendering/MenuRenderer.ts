@@ -54,6 +54,12 @@ export class MenuRenderer {
   async init(): Promise<void> {
     if (this.initialized) return;
 
+    // Pre-check: verify WebGL is available before attempting initialization
+    if (!this.isWebGLAvailable()) {
+      debug.warn('WebGL not available, skipping menu background');
+      return;
+    }
+
     try {
       this.initializeScene();
       this.initializeRenderer();
@@ -70,6 +76,22 @@ export class MenuRenderer {
       // Clean up any partial initialization
       this.cleanupRenderer();
       this.initialized = false;
+    }
+  }
+
+  private isWebGLAvailable(): boolean {
+    try {
+      const testCanvas = document.createElement('canvas');
+      const gl = testCanvas.getContext('webgl2') || testCanvas.getContext('webgl');
+      if (!gl) {
+        return false;
+      }
+      // Clean up test context
+      const ext = gl.getExtension('WEBGL_lose_context');
+      if (ext) ext.loseContext();
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -99,6 +121,21 @@ export class MenuRenderer {
   }
 
   private cleanupRenderer(): void {
+    // Force lose WebGL context before disposing
+    try {
+      if (this.canvas) {
+        const gl = this.canvas.getContext('webgl2') || this.canvas.getContext('webgl');
+        if (gl) {
+          const ext = gl.getExtension('WEBGL_lose_context');
+          if (ext) {
+            ext.loseContext();
+          }
+        }
+      }
+    } catch {
+      // Ignore context loss errors
+    }
+
     // Dispose renderer to release WebGL context
     try {
       if (this.renderer) {

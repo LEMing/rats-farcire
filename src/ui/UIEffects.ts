@@ -5,11 +5,23 @@
  * Extracted from UIManager to follow Single Responsibility Principle.
  */
 
+interface QueuedNotification {
+  text: string;
+  color: number;
+  type: 'powerup' | 'notification' | 'message';
+  duration: number;
+}
+
 export class UIEffects {
   private damageVignette: HTMLElement;
   private killFlash: HTMLElement;
   private damageNumbersContainer: HTMLElement;
   private lowHealthPulse = 0;
+
+  // Notification queue system
+  private notificationQueue: QueuedNotification[] = [];
+  private activeNotification: HTMLElement | null = null;
+  private isProcessingQueue = false;
 
   constructor() {
     this.damageVignette = this.createDamageVignette();
@@ -196,82 +208,126 @@ export class UIEffects {
   }
 
   // ============================================================================
-  // Notifications
+  // Notifications - Queue-based system to prevent overlapping
   // ============================================================================
 
   showPowerUpNotification(name: string, color: number): void {
-    const overlay = document.getElementById('ui-overlay')!;
-    const notification = document.createElement('div');
-    const hexColor = '#' + color.toString(16).padStart(6, '0');
-
-    notification.style.cssText = `
-      position: absolute;
-      top: 35%;
-      left: 50%;
-      transform: translate(-50%, -50%) scale(1.5);
-      font-size: 32px;
-      font-weight: bold;
-      color: ${hexColor};
-      text-shadow: 0 0 20px ${hexColor}, 0 0 40px ${hexColor}, 2px 2px 0 #000;
-      text-transform: uppercase;
-      letter-spacing: 4px;
-      pointer-events: none;
-      z-index: 70;
-      animation: powerUpNotification 1.5s ease-out forwards;
-    `;
-    notification.textContent = name;
-
-    overlay.appendChild(notification);
-
-    setTimeout(() => notification.remove(), 1500);
+    this.queueNotification({
+      text: name,
+      color,
+      type: 'powerup',
+      duration: 1500,
+    });
   }
 
   showNotification(text: string, color: number): void {
-    const overlay = document.getElementById('ui-overlay')!;
-    const notification = document.createElement('div');
-    const hexColor = '#' + color.toString(16).padStart(6, '0');
-
-    notification.style.cssText = `
-      position: absolute;
-      top: 30%;
-      left: 50%;
-      transform: translate(-50%, -50%) scale(1);
-      font-size: 28px;
-      font-weight: bold;
-      color: ${hexColor};
-      text-shadow: 0 0 15px ${hexColor}, 2px 2px 0 #000;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-      pointer-events: none;
-      z-index: 70;
-      animation: powerUpNotification 2s ease-out forwards;
-    `;
-    notification.textContent = text;
-
-    overlay.appendChild(notification);
-
-    setTimeout(() => notification.remove(), 2000);
+    this.queueNotification({
+      text,
+      color,
+      type: 'notification',
+      duration: 2000,
+    });
   }
 
   showMessage(message: string, duration = 3000): void {
-    const msgElement = document.createElement('div');
-    msgElement.style.cssText = `
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 32px;
-      color: #fff;
-      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-      animation: fadeOut ${duration}ms ease-out forwards;
-      pointer-events: none;
-    `;
-    msgElement.textContent = message;
+    this.queueNotification({
+      text: message,
+      color: 0xffffff,
+      type: 'message',
+      duration,
+    });
+  }
 
+  private queueNotification(notification: QueuedNotification): void {
+    // Check if this exact notification is already queued or showing
+    const isDuplicate = this.notificationQueue.some(
+      (n) => n.text === notification.text && n.type === notification.type
+    );
+    if (isDuplicate) return;
+
+    this.notificationQueue.push(notification);
+    this.processQueue();
+  }
+
+  private processQueue(): void {
+    // Don't start processing if already processing or queue is empty
+    if (this.isProcessingQueue || this.notificationQueue.length === 0) return;
+
+    this.isProcessingQueue = true;
+    const notification = this.notificationQueue.shift()!;
+    this.displayNotification(notification);
+  }
+
+  private displayNotification(notification: QueuedNotification): void {
     const overlay = document.getElementById('ui-overlay')!;
-    overlay.appendChild(msgElement);
+    const element = document.createElement('div');
+    const hexColor = '#' + notification.color.toString(16).padStart(6, '0');
 
-    setTimeout(() => msgElement.remove(), duration);
+    // All notifications now use the same centered position
+    const styles = this.getNotificationStyles(notification.type, hexColor);
+    element.style.cssText = styles;
+    element.textContent = notification.text;
+
+    // Remove any existing notification first
+    if (this.activeNotification) {
+      this.activeNotification.remove();
+    }
+
+    this.activeNotification = element;
+    overlay.appendChild(element);
+
+    // Schedule removal and next notification
+    setTimeout(() => {
+      element.remove();
+      if (this.activeNotification === element) {
+        this.activeNotification = null;
+      }
+      this.isProcessingQueue = false;
+      // Small delay between notifications for readability
+      setTimeout(() => this.processQueue(), 100);
+    }, notification.duration);
+  }
+
+  private getNotificationStyles(type: QueuedNotification['type'], hexColor: string): string {
+    const baseStyles = `
+      position: absolute;
+      top: 25%;
+      left: 50%;
+      pointer-events: none;
+      z-index: 70;
+      text-transform: uppercase;
+    `;
+
+    switch (type) {
+      case 'powerup':
+        return baseStyles + `
+          transform: translate(-50%, -50%) scale(1.5);
+          font-size: 32px;
+          font-weight: bold;
+          color: ${hexColor};
+          text-shadow: 0 0 20px ${hexColor}, 0 0 40px ${hexColor}, 2px 2px 0 #000;
+          letter-spacing: 4px;
+          animation: powerUpNotification 1.5s ease-out forwards;
+        `;
+      case 'notification':
+        return baseStyles + `
+          transform: translate(-50%, -50%) scale(1);
+          font-size: 28px;
+          font-weight: bold;
+          color: ${hexColor};
+          text-shadow: 0 0 15px ${hexColor}, 2px 2px 0 #000;
+          letter-spacing: 3px;
+          animation: powerUpNotification 2s ease-out forwards;
+        `;
+      case 'message':
+        return baseStyles + `
+          transform: translate(-50%, -50%);
+          font-size: 32px;
+          color: ${hexColor};
+          text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+          animation: fadeOut 3000ms ease-out forwards;
+        `;
+    }
   }
 
   // ============================================================================
@@ -316,6 +372,17 @@ export class UIEffects {
         100% {
           opacity: 0;
           transform: translate(-50%, -70%) scale(0.8);
+        }
+      }
+      @keyframes fadeOut {
+        0% {
+          opacity: 1;
+        }
+        70% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
         }
       }
     `;
