@@ -1,4 +1,5 @@
 import type { InputState } from '@shared/types';
+import { Settings } from '../settings/Settings';
 
 // ============================================================================
 // Input Manager - WASD + Mouse (layout-independent using key codes)
@@ -10,8 +11,10 @@ export class InputManager {
   public mouseY = 0;
   private mouseDown = false;
   private sequence = 0;
+  private settings: Settings;
 
   constructor(container: HTMLElement) {
+    this.settings = Settings.getInstance();
     // Keyboard events - use code for layout independence
     window.addEventListener('keydown', this.onKeyDown.bind(this));
     window.addEventListener('keyup', this.onKeyUp.bind(this));
@@ -79,8 +82,7 @@ export class InputManager {
     const normalizedAimX = aimLen > 0 ? aimX / aimLen : 0;
     const normalizedAimY = aimLen > 0 ? aimY / aimLen : 1;
 
-    // Get raw WASD input (relative to aim direction)
-    // W = forward (toward aim), S = backward, A = strafe left, D = strafe right
+    // Get raw WASD input
     // Using key codes for layout independence
     let forward = 0;
     let strafe = 0;
@@ -90,14 +92,22 @@ export class InputManager {
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) strafe -= 1;
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) strafe += 1;
 
-    // Calculate movement relative to aim direction
-    // Forward vector is (aimX, aimY), right vector is perpendicular
-    const rightX = -normalizedAimY; // Perpendicular to aim (right)
-    const rightY = normalizedAimX;
+    // Calculate movement based on control scheme
+    let moveX: number;
+    let moveY: number;
 
-    // Combine forward and strafe into world-space movement
-    let moveX = forward * normalizedAimX + strafe * rightX;
-    let moveY = forward * normalizedAimY + strafe * rightY;
+    if (this.settings.controlScheme === 'camera-relative') {
+      // Camera-relative: W=up-screen, S=down-screen, A=left-screen, D=right-screen
+      // Rotated by -45° for isometric view, negated forward for correct up direction
+      moveX = Math.cos(isoAngle) * strafe + Math.sin(isoAngle) * forward;
+      moveY = Math.sin(isoAngle) * strafe - Math.cos(isoAngle) * forward;
+    } else {
+      // Player-relative (default): W=toward aim, S=away from aim, A/D=strafe
+      const rightX = -normalizedAimY; // Perpendicular to aim (right)
+      const rightY = normalizedAimX;
+      moveX = forward * normalizedAimX + strafe * rightX;
+      moveY = forward * normalizedAimY + strafe * rightY;
+    }
 
     // Normalize if moving diagonally
     const moveLen = Math.sqrt(moveX * moveX + moveY * moveY);
@@ -127,6 +137,7 @@ export class InputManager {
       dash: this.keys.has('Space'),
       weaponSlot,
       thermobaric: this.keys.has('KeyF'),
+      escapePressed: this.keys.has('Escape'),
       sequence: this.sequence,
     };
   }

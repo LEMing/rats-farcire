@@ -204,6 +204,7 @@ export interface InputState {
   dash: boolean;
   weaponSlot: number | null; // 1-5 for weapon switching
   thermobaric: boolean; // F key for thermobaric charge
+  escapePressed: boolean; // ESC key for pause menu
   sequence: number;
 }
 

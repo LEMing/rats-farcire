@@ -5,7 +5,8 @@ import { MapGenerator } from '../map/MapGenerator';
 import { NetworkClient } from '../network/NetworkClient';
 import { UIManager } from '../ui/UIManager';
 import { LocalGameLoop } from './LocalGameLoop';
-import { createAudioManager } from '../audio/AudioManager';
+import { createAudioManager, getAudioManager } from '../audio/AudioManager';
+import { PauseMenu } from '../ui/PauseMenu';
 import { debug } from '../utils/debug';
 import type { MapData, InputState } from '@shared/types';
 import { TICK_RATE, MAP_WIDTH, MAP_HEIGHT } from '@shared/constants';
@@ -48,6 +49,11 @@ export class Game {
   // Game time for effects
   private gameTime = 0;
 
+  // Pause system
+  private isPaused = false;
+  private lastEscapeState = false;
+  private pauseMenu: PauseMenu | null = null;
+
   /**
    * Create a new Game instance
    * @param deps Optional dependencies for testing/customization
@@ -78,6 +84,9 @@ export class Game {
     const concreteRenderer = this.renderer as Renderer;
     const audioManager = createAudioManager(concreteRenderer.camera);
     await audioManager.init();
+
+    // Initialize pause menu
+    this.pauseMenu = new PauseMenu(() => this.togglePause());
 
     this.isMultiplayer = multiplayer;
 
@@ -208,13 +217,26 @@ export class Game {
   }
 
   private fixedUpdate(): void {
+    const inputState = this.input.getState();
+
+    // Handle ESC key for pause (edge detection)
+    const escapePressed = inputState.escapePressed && !this.lastEscapeState;
+    this.lastEscapeState = inputState.escapePressed;
+
+    if (escapePressed && this.isRunning) {
+      this.togglePause();
+    }
+
+    // Skip game logic when paused
+    if (this.isPaused) {
+      return;
+    }
+
     // Hitstop - pause game logic briefly
     if (this.hitstopTimer > 0) {
       this.hitstopTimer -= this.tickInterval;
       return;
     }
-
-    const inputState = this.input.getState();
 
     if (this.isMultiplayer && this.network) {
       // Send input to server
@@ -223,6 +245,24 @@ export class Game {
       // Process locally
       this.localLoop.update(inputState, this.tickInterval);
     }
+  }
+
+  private togglePause(): void {
+    this.isPaused = !this.isPaused;
+
+    if (this.isPaused) {
+      this.pauseMenu?.show();
+      document.body.style.cursor = 'auto';
+      // Pause music
+      getAudioManager()?.pauseMusic();
+    } else {
+      this.pauseMenu?.hide();
+      document.body.style.cursor = 'none';
+      // Resume music
+      getAudioManager()?.resumeMusic();
+    }
+
+    debug.log('Game', this.isPaused ? 'paused' : 'resumed');
   }
 
   private render(alpha: number): void {

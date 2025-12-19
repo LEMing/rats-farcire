@@ -315,12 +315,29 @@ export class AudioManager {
     this.musicController.stop();
   }
 
+  pauseMusic(): void {
+    this.musicController.pause();
+  }
+
+  resumeMusic(): void {
+    this.musicController.resume();
+  }
+
   startMenuMusic(): void {
     this.musicController.play('menu', false);
   }
 
   stopMenuMusic(): void {
     this.musicController.stop();
+  }
+
+  // === Settings Integration ===
+
+  updateVolumes(settings: { masterVolume: number; sfxVolume: number; musicVolume: number }): void {
+    this.volumes.master = settings.masterVolume;
+    this.volumes.sfx = settings.sfxVolume;
+    this.volumes.music = settings.musicVolume;
+    this.musicController.setVolume(this.calculateVolume('music', 1));
   }
 
   // === Cleanup ===
