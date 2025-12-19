@@ -459,7 +459,7 @@ export class EntityAnimator {
   }
 
   /**
-   * Attack animation - lunge forward, snap back
+   * Attack animation - weapon swing with body movement
    */
   private animateAttack(id: string, entity: EntityVisual): void {
     const enemyState = this.enemyStates.get(id);
@@ -475,8 +475,9 @@ export class EntityAnimator {
       this.enemyAttackStates.set(id, attackState);
     }
 
+    const weapon = entity.mesh.getObjectByName('weapon') as THREE.Group | undefined;
     const now = Date.now();
-    const attackCycleDuration = 400; // ms for full attack cycle
+    const attackCycleDuration = 350; // ms for full attack cycle
 
     if (isAttacking) {
       // Start new attack cycle if not already attacking or cycle completed
@@ -490,49 +491,90 @@ export class EntityAnimator {
       const elapsed = now - attackState.lastAttackTime;
       attackState.lungePhase = Math.min(elapsed / attackCycleDuration, 1);
 
-      // Lunge curve: quick forward (0-0.3), hold (0.3-0.5), snap back (0.5-1.0)
       const phase = attackState.lungePhase;
+
+      // Weapon swing animation
+      // Phase 0-0.25: Wind up - raise weapon behind
+      // Phase 0.25-0.5: Swing down fast - strike!
+      // Phase 0.5-1.0: Recovery - return to ready position
+      if (weapon) {
+        let weaponRotX: number;
+        let weaponRotZ: number;
+        let weaponPosY: number;
+        let weaponPosX: number;
+
+        if (phase < 0.25) {
+          // Wind up - raise weapon behind head
+          const t = phase / 0.25;
+          const easeOut = 1 - Math.pow(1 - t, 2);
+          weaponRotX = 0.2 - easeOut * 2.5; // Rotate back (negative = behind)
+          weaponRotZ = 0.3 + easeOut * 0.3; // Slight twist
+          weaponPosY = 0.3 + easeOut * 0.4; // Raise up
+          weaponPosX = 0.35 - easeOut * 0.1; // Pull back slightly
+        } else if (phase < 0.5) {
+          // Swing down - fast strike!
+          const t = (phase - 0.25) / 0.25;
+          const easeIn = t * t; // Accelerate into the swing
+          weaponRotX = -2.3 + easeIn * 3.5; // Swing forward past vertical
+          weaponRotZ = 0.6 - easeIn * 0.4;
+          weaponPosY = 0.7 - easeIn * 0.5; // Come down
+          weaponPosX = 0.25 + easeIn * 0.15; // Follow through
+        } else {
+          // Recovery - return to ready
+          const t = (phase - 0.5) / 0.5;
+          const easeOut = 1 - Math.pow(1 - t, 3); // Smooth return
+          weaponRotX = 1.2 - easeOut * 1.0; // Return to ~0.2
+          weaponRotZ = 0.2 + easeOut * 0.1;
+          weaponPosY = 0.2 + easeOut * 0.1;
+          weaponPosX = 0.4 - easeOut * 0.05;
+        }
+
+        weapon.rotation.x = weaponRotX;
+        weapon.rotation.z = weaponRotZ;
+        weapon.position.y = weaponPosY;
+        weapon.position.x = weaponPosX;
+      }
+
+      // Body lunge (reduced since weapon does main animation)
       let lungeAmount: number;
       let scaleX: number;
       let scaleY: number;
       let tiltAngle: number;
 
-      if (phase < 0.3) {
-        // Lunge forward - quick!
-        const t = phase / 0.3;
-        lungeAmount = t * 0.5; // Move forward 0.5 units
-        scaleX = 1 + t * 0.15; // Stretch forward
-        scaleY = 1 - t * 0.1; // Squash slightly
-        tiltAngle = -t * 0.3; // Tilt forward
+      if (phase < 0.25) {
+        // Crouch/wind up
+        const t = phase / 0.25;
+        lungeAmount = -t * 0.1; // Step back slightly
+        scaleX = 1 - t * 0.05;
+        scaleY = 1 - t * 0.08; // Crouch down
+        tiltAngle = t * 0.15; // Lean back
       } else if (phase < 0.5) {
-        // Hold at max lunge - "bite"
-        lungeAmount = 0.5;
-        scaleX = 1.15;
-        scaleY = 0.9;
-        tiltAngle = -0.3;
+        // Strike forward
+        const t = (phase - 0.25) / 0.25;
+        lungeAmount = -0.1 + t * 0.4; // Lunge forward
+        scaleX = 0.95 + t * 0.15;
+        scaleY = 0.92 + t * 0.03;
+        tiltAngle = 0.15 - t * 0.35; // Lean forward into strike
       } else {
-        // Snap back
+        // Recovery
         const t = (phase - 0.5) / 0.5;
-        const easeOut = 1 - Math.pow(1 - t, 2); // Ease out
-        lungeAmount = 0.5 * (1 - easeOut);
-        scaleX = 1 + 0.15 * (1 - easeOut);
-        scaleY = 1 - 0.1 * (1 - easeOut);
-        tiltAngle = -0.3 * (1 - easeOut);
+        const easeOut = 1 - Math.pow(1 - t, 2);
+        lungeAmount = 0.3 * (1 - easeOut);
+        scaleX = 1.1 - easeOut * 0.1;
+        scaleY = 0.95 + easeOut * 0.05;
+        tiltAngle = -0.2 * (1 - easeOut);
       }
 
-      // Apply lunge offset in facing direction
-      const body = entity.mesh.children.find(c => c.name !== 'healthBar' && c.name !== 'speechBubble');
+      // Apply body movement
+      const body = entity.mesh.children.find(c =>
+        c.name !== 'healthBar' && c.name !== 'speechBubble' && c.name !== 'weapon'
+      );
       if (body) {
-        // Calculate forward direction based on mesh rotation
         const forwardX = Math.sin(entity.mesh.rotation.y);
         const forwardZ = Math.cos(entity.mesh.rotation.y);
         body.position.x = forwardX * lungeAmount;
         body.position.z = forwardZ * lungeAmount;
-
-        // Apply squash/stretch
         body.scale.set(scaleX, scaleY, 1);
-
-        // Apply tilt
         body.rotation.x = tiltAngle;
       }
     } else {
@@ -541,8 +583,17 @@ export class EntityAnimator {
         attackState.isAttacking = false;
         attackState.lungePhase = 0;
 
-        // Reset body position and scale
-        const body = entity.mesh.children.find(c => c.name !== 'healthBar' && c.name !== 'speechBubble');
+        // Reset weapon
+        if (weapon) {
+          weapon.position.set(0.35, 0.3, 0.1);
+          weapon.rotation.x = 0.2;
+          weapon.rotation.z = 0.3;
+        }
+
+        // Reset body
+        const body = entity.mesh.children.find(c =>
+          c.name !== 'healthBar' && c.name !== 'speechBubble' && c.name !== 'weapon'
+        );
         if (body) {
           body.position.x = 0;
           body.position.z = 0;

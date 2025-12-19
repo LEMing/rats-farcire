@@ -24,6 +24,7 @@ export interface IRenderer {
   updateTorches(gameTime: number): void;
   updateTardis(dt: number): void;
   updatePowerCells(): void;
+  updateThermobaricEffects(): void;
 
   // Power cell visuals
   removePowerCell(cellId: string): void;

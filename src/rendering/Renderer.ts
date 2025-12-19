@@ -21,6 +21,7 @@ import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 import { TargetingLaserMaterial } from './LaserMaterial';
 import { MapRenderer } from './MapRenderer';
 import { ParticleSystem } from '../systems/ParticleSystem';
+import { ThermobaricEffect } from './ThermobaricEffect';
 import { debug } from '../utils/debug';
 
 // ============================================================================
@@ -63,6 +64,9 @@ export class Renderer {
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
   private time = 0;
+
+  // Active thermobaric effects
+  private thermobaricEffects: ThermobaricEffect[] = [];
 
   private container: HTMLElement;
   private canvas: HTMLCanvasElement | null = null;
@@ -525,45 +529,20 @@ export class Renderer {
   }
 
   createThermobaricEffect(position: Vec3, radius: number): void {
-    // Create expanding fire ring effect
-    const ringGeom = new THREE.RingGeometry(0.5, radius, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xff6600,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-    });
-    const ring = new THREE.Mesh(ringGeom, ringMat);
-    ring.position.set(position.x, 0.1, position.z);
-    ring.rotation.x = -Math.PI / 2;
-    this.scene.add(ring);
+    // Create multi-phase thermobaric explosion effect
+    const effect = new ThermobaricEffect(this.scene, position, radius);
+    this.thermobaricEffects.push(effect);
 
-    // Animate the ring expansion and fade
-    let progress = 0;
-    const animate = () => {
-      progress += 0.05;
-      if (progress >= 1) {
-        this.scene.remove(ring);
-        ringGeom.dispose();
-        ringMat.dispose();
-        return;
+    // Also add extra screen shake for the thermobaric
+    this.addScreenShake(1.5);
+  }
+
+  updateThermobaricEffects(): void {
+    for (let i = this.thermobaricEffects.length - 1; i >= 0; i--) {
+      const complete = this.thermobaricEffects[i].update();
+      if (complete) {
+        this.thermobaricEffects.splice(i, 1);
       }
-      ring.scale.setScalar(progress);
-      ringMat.opacity = 0.8 * (1 - progress);
-      requestAnimationFrame(animate);
-    };
-    animate();
-
-    // Spawn fire particles
-    for (let i = 0; i < 30; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Math.random() * radius;
-      const particlePos = {
-        x: position.x + Math.cos(angle) * dist,
-        y: 0.5,
-        z: position.z + Math.sin(angle) * dist,
-      };
-      this.particleSystem.spawnFireParticle(particlePos);
     }
   }
 

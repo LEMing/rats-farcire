@@ -284,6 +284,9 @@ export class Game {
     // Update power cell animations
     this.renderer.updatePowerCells();
 
+    // Update thermobaric explosion effects
+    this.renderer.updateThermobaricEffects();
+
     // Update crosshair position
     this.ui.updateCrosshair(this.input.mouseX, this.input.mouseY);
 

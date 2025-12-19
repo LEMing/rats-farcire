@@ -380,6 +380,47 @@ export class EntityFactory {
       group.add(emblem);
     }
 
+    // --- Weapon (Club/Mace) for melee attacks ---
+    const weaponGroup = new THREE.Group();
+    weaponGroup.name = 'weapon';
+
+    // Club handle (wood)
+    const handleMat = new THREE.MeshLambertMaterial({ color: 0x553311 });
+    const handleGeom = new THREE.CylinderGeometry(0.025, 0.03, 0.4, 6);
+    const handle = new THREE.Mesh(handleGeom, handleMat);
+    handle.position.y = 0.2;
+    weaponGroup.add(handle);
+
+    // Club head (metal/stone)
+    const clubHeadMat = new THREE.MeshLambertMaterial({ color: 0x444455 });
+    const clubHeadGeom = new THREE.SphereGeometry(0.08, 8, 6);
+    const clubHead = new THREE.Mesh(clubHeadGeom, clubHeadMat);
+    clubHead.position.y = 0.42;
+    clubHead.scale.set(1, 1.3, 1);
+    weaponGroup.add(clubHead);
+
+    // Spikes on club head
+    const spikeMat = new THREE.MeshLambertMaterial({ color: 0x666677 });
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const spikeGeom = new THREE.ConeGeometry(0.02, 0.06, 4);
+      const spike = new THREE.Mesh(spikeGeom, spikeMat);
+      spike.position.set(
+        Math.cos(angle) * 0.07,
+        0.42,
+        Math.sin(angle) * 0.07
+      );
+      spike.rotation.z = -angle - Math.PI / 2;
+      spike.rotation.order = 'ZYX';
+      weaponGroup.add(spike);
+    }
+
+    // Position weapon at right side (resting position)
+    weaponGroup.position.set(0.35, 0.3, 0.1);
+    weaponGroup.rotation.z = 0.3; // Slight tilt
+    weaponGroup.rotation.x = 0.2;
+    group.add(weaponGroup);
+
     // Scale based on type
     if (state.enemyType === 'tank') {
       group.scale.setScalar(1.4);
