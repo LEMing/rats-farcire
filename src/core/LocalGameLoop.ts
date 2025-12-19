@@ -268,17 +268,12 @@ export class LocalGameLoop {
     this.barrelManager.clear();
     this.renderer.getMapRenderer().clearExplosiveBarrels();
 
-    // Spawn barrels in rooms (except spawn room at index 0)
-    for (let i = 1; i < this.mapData.rooms.length; i++) {
-      const room = this.mapData.rooms[i];
-      // Skip small rooms
-      if (room.width < 4 || room.height < 4) continue;
+    // Spawn explosive barrels only in storage rooms
+    for (const room of this.mapData.rooms) {
+      if (room.roomType !== 'storage') continue;
 
-      // 40% chance per room
-      if (Math.random() > 0.4) continue;
-
-      // Spawn 1-3 barrels per room
-      const barrelCount = 1 + Math.floor(Math.random() * 3);
+      // Spawn 2-4 explosive barrels per storage room
+      const barrelCount = 2 + Math.floor(Math.random() * 3);
 
       for (let j = 0; j < barrelCount; j++) {
         // Random position within room (with padding from walls)

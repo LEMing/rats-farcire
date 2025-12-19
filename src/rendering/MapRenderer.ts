@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import type { MapData, Vec3 } from '@shared/types';
+import type { MapData, Vec3, Room } from '@shared/types';
 import { TILE_SIZE, COLORS } from '@shared/constants';
 import { TardisFactory, TardisInstance } from './TardisFactory';
 import { MapDecorations } from './MapDecorations';
@@ -220,103 +220,288 @@ export class MapRenderer {
   }
 
   private placeDecorations(mapData: MapData): void {
-    const spawnRoom = mapData.rooms[0];
-
-    // Place meat grinder in a larger room (not spawn room)
-    for (let i = 1; i < mapData.rooms.length; i++) {
-      const room = mapData.rooms[i];
-      if (room.width >= 6 && room.height >= 6 && Math.random() < 0.4) {
-        const centerX = (room.x + room.width / 2) * TILE_SIZE;
-        const centerZ = (room.y + room.height / 2) * TILE_SIZE;
-        const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
-        this.deps.scene.add(grinder);
-        break; // Only one grinder per map
-      }
+    // Decorate each room based on its type
+    for (const room of mapData.rooms) {
+      this.decorateRoom(room, mapData);
     }
 
-    // Place ritual circles near altars
+    // Place ritual circles near altars (global decoration)
     for (const altar of mapData.altarPositions) {
       if (Math.random() < 0.5) {
         const circle = MapDecorations.createRitualCircle(
           altar.x * TILE_SIZE,
           altar.y * TILE_SIZE
         );
-        // Offset slightly so it's around the altar
         circle.position.x += (Math.random() - 0.5) * 2;
         circle.position.z += (Math.random() - 0.5) * 2;
         this.deps.scene.add(circle);
       }
     }
+  }
 
-    // Scatter decorations across floor tiles
-    for (let y = 0; y < mapData.height; y++) {
-      for (let x = 0; x < mapData.width; x++) {
-        const tile = mapData.tiles[y][x];
-        if (tile.type !== 'floor') continue;
+  /**
+   * Decorate a room based on its type
+   */
+  private decorateRoom(room: Room, mapData: MapData): void {
+    const centerX = (room.x + room.width / 2) * TILE_SIZE;
+    const centerZ = (room.y + room.height / 2) * TILE_SIZE;
 
-        // Skip spawn room for most decorations
-        const inSpawnRoom = spawnRoom &&
-          x >= spawnRoom.x && x < spawnRoom.x + spawnRoom.width &&
-          y >= spawnRoom.y && y < spawnRoom.y + spawnRoom.height;
+    switch (room.roomType) {
+      case 'spawn':
+        // Minimal decorations - just keep it clean
+        break;
+
+      case 'tardis':
+        // TARDIS room - mysterious, ritual elements
+        this.decorateTardisRoom(room, mapData);
+        break;
+
+      case 'cell':
+        // Power cell room - tech/energy theme
+        this.decorateCellRoom(room, mapData);
+        break;
+
+      case 'grinder':
+        // Meat grinder room - industrial horror
+        this.decorateGrinderRoom(room, centerX, centerZ, mapData);
+        break;
+
+      case 'storage':
+        // Storage room - crates, barrels
+        this.decorateStorageRoom(room, mapData);
+        break;
+
+      case 'nest':
+        // Rat nest - bones, rat holes, debris
+        this.decorateNestRoom(room, mapData);
+        break;
+
+      case 'shrine':
+        // Cult shrine - candles, ritual circles
+        this.decorateShrineRoom(room, centerX, centerZ, mapData);
+        break;
+
+      case 'altar':
+      case 'normal':
+      default:
+        // Normal/altar rooms - light random decorations
+        this.decorateNormalRoom(room, mapData);
+        break;
+    }
+  }
+
+  private decorateTardisRoom(room: Room, _mapData: MapData): void {
+    // Add candle clusters around the room edges
+    const positions = this.getRoomEdgePositions(room, 2);
+    for (const pos of positions) {
+      if (Math.random() < 0.4) {
+        const candles = MapDecorations.createCandleCluster(pos.x, pos.z);
+        this.deps.scene.add(candles);
+      }
+    }
+  }
+
+  private decorateCellRoom(room: Room, _mapData: MapData): void {
+    // Tech debris scattered around
+    const positions = this.getRandomRoomPositions(room, 3);
+    for (const pos of positions) {
+      const debris = MapDecorations.createDebrisCluster(pos.x, pos.z);
+      this.deps.scene.add(debris);
+    }
+  }
+
+  private decorateGrinderRoom(room: Room, centerX: number, centerZ: number, _mapData: MapData): void {
+    // Centerpiece: Meat grinder
+    const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
+    this.deps.scene.add(grinder);
+
+    // Meat piles around the grinder
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = 2 + Math.random();
+      const pile = MapDecorations.createMeatPile(
+        centerX + Math.cos(angle) * dist,
+        0,
+        centerZ + Math.sin(angle) * dist
+      );
+      this.deps.scene.add(pile);
+    }
+
+    // Blood pools
+    for (let i = 0; i < 3; i++) {
+      const pos = this.getRandomRoomPosition(room);
+      const pool = MapDecorations.createBloodPool(pos.x, pos.z);
+      this.deps.scene.add(pool);
+    }
+  }
+
+  private decorateStorageRoom(room: Room, _mapData: MapData): void {
+    // Crate stacks as focal points
+    const stackCount = room.width >= 6 ? 2 : 1;
+    const stackPositions = this.getRandomRoomPositions(room, stackCount, 2);
+    for (const pos of stackPositions) {
+      const stack = MapDecorations.createCrateStack(pos.x, pos.z);
+      this.deps.scene.add(stack);
+    }
+
+    // Scattered crates and barrels
+    const scatterCount = 3 + Math.floor(Math.random() * 3);
+    const scatterPositions = this.getRandomRoomPositions(room, scatterCount);
+    for (const pos of scatterPositions) {
+      if (Math.random() > 0.4) {
+        const crate = MapDecorations.createCrate(pos.x, pos.z);
+        this.deps.scene.add(crate);
+      } else {
+        const tipped = Math.random() < 0.3;
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, tipped);
+        this.deps.scene.add(barrel);
+      }
+    }
+  }
+
+  private decorateNestRoom(room: Room, mapData: MapData): void {
+    // Bone piles - more dense in nest rooms
+    const boneCount = 2 + Math.floor(Math.random() * 3);
+    const bonePositions = this.getRandomRoomPositions(room, boneCount);
+    for (const pos of bonePositions) {
+      const bones = MapDecorations.createBonePile(pos.x, pos.z);
+      this.deps.scene.add(bones);
+    }
+
+    // Debris clusters
+    const debrisCount = 2 + Math.floor(Math.random() * 2);
+    const debrisPositions = this.getRandomRoomPositions(room, debrisCount);
+    for (const pos of debrisPositions) {
+      const debris = MapDecorations.createDebrisCluster(pos.x, pos.z);
+      this.deps.scene.add(debris);
+    }
+
+    // Rat holes on walls
+    this.addRatHolesToRoom(room, mapData, 0.15);
+  }
+
+  private decorateShrineRoom(room: Room, centerX: number, centerZ: number, _mapData: MapData): void {
+    // Central ritual circle
+    const circle = MapDecorations.createRitualCircle(centerX, centerZ);
+    this.deps.scene.add(circle);
+
+    // Candle clusters around the circle
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const dist = 1.8;
+      const candles = MapDecorations.createCandleCluster(
+        centerX + Math.cos(angle) * dist,
+        centerZ + Math.sin(angle) * dist
+      );
+      this.deps.scene.add(candles);
+    }
+
+    // Maybe some bone offerings
+    if (Math.random() < 0.5) {
+      const pos = this.getRandomRoomPosition(room);
+      const bones = MapDecorations.createBonePile(pos.x, pos.z);
+      this.deps.scene.add(bones);
+    }
+  }
+
+  private decorateNormalRoom(room: Room, _mapData: MapData): void {
+    // Light random decorations
+    const decorCount = 1 + Math.floor(Math.random() * 2);
+    const positions = this.getRandomRoomPositions(room, decorCount);
+
+    for (const pos of positions) {
+      const rand = Math.random();
+      if (rand < 0.3) {
+        const bones = MapDecorations.createBonePile(pos.x, pos.z);
+        this.deps.scene.add(bones);
+      } else if (rand < 0.5) {
+        const debris = MapDecorations.createDebrisCluster(pos.x, pos.z);
+        this.deps.scene.add(debris);
+      } else if (rand < 0.7) {
+        const crate = MapDecorations.createCrate(pos.x, pos.z);
+        this.deps.scene.add(crate);
+      }
+    }
+  }
+
+  // ============================================================================
+  // Decoration Helper Methods
+  // ============================================================================
+
+  private getRandomRoomPosition(room: Room): { x: number; z: number } {
+    const padding = 1;
+    const x = room.x + padding + Math.random() * (room.width - padding * 2);
+    const z = room.y + padding + Math.random() * (room.height - padding * 2);
+    return { x: x * TILE_SIZE, z: z * TILE_SIZE };
+  }
+
+  private getRandomRoomPositions(room: Room, count: number, minDist: number = 1.5): { x: number; z: number }[] {
+    const positions: { x: number; z: number }[] = [];
+    const maxAttempts = count * 10;
+
+    for (let attempt = 0; attempt < maxAttempts && positions.length < count; attempt++) {
+      const pos = this.getRandomRoomPosition(room);
+
+      // Check minimum distance from existing positions
+      const tooClose = positions.some(p => {
+        const dx = p.x - pos.x;
+        const dz = p.z - pos.z;
+        return Math.sqrt(dx * dx + dz * dz) < minDist * TILE_SIZE;
+      });
+
+      if (!tooClose) {
+        positions.push(pos);
+      }
+    }
+
+    return positions;
+  }
+
+  private getRoomEdgePositions(room: Room, padding: number): { x: number; z: number }[] {
+    const positions: { x: number; z: number }[] = [];
+    const innerPadding = padding;
+
+    // Corners and edge midpoints
+    const corners = [
+      { x: room.x + innerPadding, z: room.y + innerPadding },
+      { x: room.x + room.width - innerPadding, z: room.y + innerPadding },
+      { x: room.x + innerPadding, z: room.y + room.height - innerPadding },
+      { x: room.x + room.width - innerPadding, z: room.y + room.height - innerPadding },
+    ];
+
+    for (const corner of corners) {
+      positions.push({ x: corner.x * TILE_SIZE, z: corner.z * TILE_SIZE });
+    }
+
+    return positions;
+  }
+
+  private addRatHolesToRoom(room: Room, mapData: MapData, chance: number): void {
+    for (let y = room.y; y < room.y + room.height; y++) {
+      for (let x = room.x; x < room.x + room.width; x++) {
+        if (mapData.tiles[y]?.[x]?.type !== 'floor') continue;
+        if (Math.random() > chance) continue;
 
         const worldX = x * TILE_SIZE;
         const worldZ = y * TILE_SIZE;
 
-        // Meat piles (more common near altars)
-        const nearAltar = mapData.altarPositions.some(
-          a => Math.abs(a.x - x) < 4 && Math.abs(a.y - y) < 4
-        );
-        if (Math.random() < (nearAltar ? 0.08 : 0.02)) {
-          const pile = MapDecorations.createMeatPile(
-            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.6,
-            0,
-            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.6
-          );
-          this.deps.scene.add(pile);
-        }
+        const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
+        const hasWallLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'wall';
+        const hasWallDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall';
+        const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
 
-        // Bone piles (scattered)
-        if (!inSpawnRoom && Math.random() < 0.015) {
-          const bones = MapDecorations.createBonePile(
-            worldX + (Math.random() - 0.5) * TILE_SIZE * 0.5,
-            worldZ + (Math.random() - 0.5) * TILE_SIZE * 0.5
-          );
-          this.deps.scene.add(bones);
-        }
-
-        // Crates and barrels (in corners and edges)
-        if (!inSpawnRoom && Math.random() < 0.02) {
-          if (Math.random() > 0.5) {
-            const crate = MapDecorations.createCrate(worldX, worldZ);
-            this.deps.scene.add(crate);
-          } else {
-            const tipped = Math.random() < 0.3;
-            const barrel = MapDecorations.createBarrel(worldX, worldZ, tipped);
-            this.deps.scene.add(barrel);
-          }
-        }
-
-        // Rat holes on walls adjacent to floor
-        if (!inSpawnRoom && Math.random() < 0.03) {
-          // Check adjacent walls
-          const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
-          const hasWallLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'wall';
-          const hasWallDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall';
-          const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
-
-          if (hasWallRight) {
-            const hole = MapDecorations.createRatHole(worldX + TILE_SIZE, worldZ, 'x', -1);
-            this.deps.scene.add(hole);
-          } else if (hasWallLeft) {
-            const hole = MapDecorations.createRatHole(worldX - TILE_SIZE, worldZ, 'x', 1);
-            this.deps.scene.add(hole);
-          } else if (hasWallDown) {
-            const hole = MapDecorations.createRatHole(worldX, worldZ + TILE_SIZE, 'z', -1);
-            this.deps.scene.add(hole);
-          } else if (hasWallUp) {
-            const hole = MapDecorations.createRatHole(worldX, worldZ - TILE_SIZE, 'z', 1);
-            this.deps.scene.add(hole);
-          }
+        if (hasWallRight) {
+          const hole = MapDecorations.createRatHole(worldX + TILE_SIZE, worldZ, 'x', -1);
+          this.deps.scene.add(hole);
+        } else if (hasWallLeft) {
+          const hole = MapDecorations.createRatHole(worldX - TILE_SIZE, worldZ, 'x', 1);
+          this.deps.scene.add(hole);
+        } else if (hasWallDown) {
+          const hole = MapDecorations.createRatHole(worldX, worldZ + TILE_SIZE, 'z', -1);
+          this.deps.scene.add(hole);
+        } else if (hasWallUp) {
+          const hole = MapDecorations.createRatHole(worldX, worldZ - TILE_SIZE, 'z', 1);
+          this.deps.scene.add(hole);
         }
       }
     }

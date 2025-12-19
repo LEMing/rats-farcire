@@ -530,4 +530,175 @@ export class MapDecorations {
 
     return group;
   }
+
+  // ============================================================================
+  // Candle Cluster - Group of flickering candles for shrines
+  // ============================================================================
+  static createCandleCluster(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const candlePositions = [
+      { dx: 0, dz: 0, height: 0.35 },
+      { dx: 0.15, dz: 0.1, height: 0.25 },
+      { dx: -0.12, dz: 0.12, height: 0.3 },
+      { dx: 0.08, dz: -0.15, height: 0.2 },
+      { dx: -0.1, dz: -0.08, height: 0.28 },
+    ];
+
+    const candleMat = new THREE.MeshLambertMaterial({ color: 0xd4a574 });
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xffaa44 });
+
+    for (const pos of candlePositions) {
+      // Candle body
+      const candleGeom = new THREE.CylinderGeometry(0.04, 0.05, pos.height, 6);
+      const candle = new THREE.Mesh(candleGeom, candleMat);
+      candle.position.set(pos.dx, pos.height / 2, pos.dz);
+      group.add(candle);
+
+      // Flame
+      const flameGeom = new THREE.ConeGeometry(0.03, 0.08, 5);
+      const flame = new THREE.Mesh(flameGeom, flameMat);
+      flame.position.set(pos.dx, pos.height + 0.04, pos.dz);
+      group.add(flame);
+    }
+
+    // Small point light
+    const light = new THREE.PointLight(0xff8844, 0.4, 5);
+    light.position.y = 0.4;
+    group.add(light);
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // Blood Pool - Dried blood decal on floor
+  // ============================================================================
+  static createBloodPool(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0.01, z);
+
+    // Main pool (irregular shape using multiple circles)
+    const poolMat = new THREE.MeshBasicMaterial({
+      color: 0x4a1010,
+      transparent: true,
+      opacity: 0.7,
+    });
+
+    // Large center
+    const mainPool = new THREE.Mesh(
+      new THREE.CircleGeometry(0.4, 12),
+      poolMat
+    );
+    mainPool.rotation.x = -Math.PI / 2;
+    group.add(mainPool);
+
+    // Smaller splatter spots
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = 0.3 + Math.random() * 0.2;
+      const size = 0.1 + Math.random() * 0.15;
+
+      const splat = new THREE.Mesh(
+        new THREE.CircleGeometry(size, 8),
+        poolMat
+      );
+      splat.rotation.x = -Math.PI / 2;
+      splat.position.set(
+        Math.cos(angle) * dist,
+        0.001,
+        Math.sin(angle) * dist
+      );
+      group.add(splat);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // Crate Stack - Stacked crates for storage rooms
+  // ============================================================================
+  static createCrateStack(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+    group.rotation.y = Math.random() * Math.PI * 2;
+
+    const woodMat = this.materialCache.get('wood')!;
+    const woodDarkMat = this.materialCache.get('woodDark')!;
+
+    // Base crate (larger)
+    const baseCrate = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.9, 1.0),
+      woodMat
+    );
+    baseCrate.position.y = 0.45;
+    baseCrate.castShadow = true;
+    group.add(baseCrate);
+
+    // Top crate (smaller, offset)
+    const topCrate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.7, 0.7),
+      woodDarkMat
+    );
+    topCrate.position.set(0.1, 1.25, -0.1);
+    topCrate.rotation.y = 0.3;
+    topCrate.castShadow = true;
+    group.add(topCrate);
+
+    // Maybe a third small crate
+    if (Math.random() > 0.5) {
+      const smallCrate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5, 0.5, 0.5),
+        woodMat
+      );
+      smallCrate.position.set(-0.3, 1.15, 0.2);
+      smallCrate.rotation.y = -0.5;
+      smallCrate.castShadow = true;
+      group.add(smallCrate);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // Debris Cluster - Rubble and debris for nest rooms
+  // ============================================================================
+  static createDebrisCluster(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const debrisMat = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+    const debrisDarkMat = new THREE.MeshLambertMaterial({ color: 0x3a3a3a });
+
+    // Scattered debris pieces
+    const debrisCount = 5 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < debrisCount; i++) {
+      const size = 0.08 + Math.random() * 0.15;
+      const debris = new THREE.Mesh(
+        new THREE.BoxGeometry(size, size * 0.5, size * 0.8),
+        Math.random() > 0.5 ? debrisMat : debrisDarkMat
+      );
+      debris.position.set(
+        (Math.random() - 0.5) * 0.6,
+        size * 0.25,
+        (Math.random() - 0.5) * 0.6
+      );
+      debris.rotation.set(
+        Math.random() * 0.3,
+        Math.random() * Math.PI * 2,
+        Math.random() * 0.3
+      );
+      group.add(debris);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
 }

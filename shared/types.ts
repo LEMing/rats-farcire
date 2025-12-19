@@ -125,7 +125,16 @@ export interface Tile {
   variant: number;
 }
 
-export type RoomType = 'spawn' | 'normal' | 'tardis' | 'cell' | 'altar';
+export type RoomType =
+  | 'spawn'    // Player start - clean, minimal
+  | 'normal'   // Fallback - random decorations
+  | 'tardis'   // Exit room - mysterious, ritual
+  | 'cell'     // Power cell room - tech/energy
+  | 'altar'    // Cult altar room - ritual theme
+  | 'grinder'  // Meat processing - industrial horror
+  | 'storage'  // Supply depot - crates, explosive barrels
+  | 'nest'     // Rat dwelling - bones, rat holes
+  | 'shrine';  // Cult worship - candles, ritual circles
 
 export interface Room {
   x: number;

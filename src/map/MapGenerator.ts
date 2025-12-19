@@ -1,4 +1,4 @@
-import type { MapData, Room, Tile, Vec2, TileType } from '@shared/types';
+import type { MapData, Room, Tile, Vec2, TileType, RoomType } from '@shared/types';
 import {
   MIN_ROOM_SIZE,
   MAX_ROOM_SIZE,
@@ -123,11 +123,36 @@ export class MapGenerator {
       shuffled[i].roomType = 'cell';
     }
 
-    // Mark remaining rooms as normal
+    // Assign themed room types to remaining 'normal' rooms based on size
     for (const room of this.rooms) {
-      if (!room.roomType) {
-        room.roomType = 'normal';
+      if (room.roomType === 'normal') {
+        room.roomType = this.assignThemedRoomType(room);
       }
+    }
+  }
+
+  /**
+   * Assign a themed room type based on room size
+   * Large rooms (≥6x6) → grinder or storage
+   * Medium rooms (≥4x4) → storage, nest, or shrine
+   * Small rooms → nest or shrine
+   */
+  private assignThemedRoomType(room: Room): RoomType {
+    const isLarge = room.width >= 6 && room.height >= 6;
+    const isMedium = room.width >= 4 && room.height >= 4;
+    const rand = Math.random();
+
+    if (isLarge) {
+      // Large rooms: 40% grinder, 60% storage
+      return rand < 0.4 ? 'grinder' : 'storage';
+    } else if (isMedium) {
+      // Medium rooms: 40% storage, 30% nest, 30% shrine
+      if (rand < 0.4) return 'storage';
+      if (rand < 0.7) return 'nest';
+      return 'shrine';
+    } else {
+      // Small rooms: 50% nest, 50% shrine
+      return rand < 0.5 ? 'nest' : 'shrine';
     }
   }
 
