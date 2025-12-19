@@ -701,4 +701,153 @@ export class MapDecorations {
     group.userData.mapObject = true;
     return group;
   }
+
+  // ============================================================================
+  // Wall Torch - Corridor/room lighting
+  // ============================================================================
+  static createWallTorch(x: number, z: number, wallDirection: 'x' | 'z', sign: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+
+    // Position against wall
+    const offsetX = wallDirection === 'x' ? sign * 0.45 : 0;
+    const offsetZ = wallDirection === 'z' ? sign * 0.45 : 0;
+    group.position.set(x + offsetX, 0.9, z + offsetZ);
+
+    // Rotate to face outward from wall
+    if (wallDirection === 'x') {
+      group.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
+    } else {
+      group.rotation.y = sign > 0 ? Math.PI : 0;
+    }
+
+    // Wall bracket
+    const bracketMat = this.materialCache.get('metalDark')!;
+    const bracket = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.15, 0.2),
+      bracketMat
+    );
+    bracket.position.set(0.1, 0, 0);
+    group.add(bracket);
+
+    // Torch holder (horizontal arm)
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.06, 0.25),
+      bracketMat
+    );
+    arm.position.set(0.22, 0, 0);
+    group.add(arm);
+
+    // Torch body
+    const torchBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.07, 0.35, 8),
+      this.materialCache.get('woodDark')!
+    );
+    torchBody.position.set(0.35, 0.1, 0);
+    group.add(torchBody);
+
+    // Flame (multiple overlapping cones for effect)
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+    const flameInnerMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+
+    const flameOuter = new THREE.Mesh(
+      new THREE.ConeGeometry(0.08, 0.2, 6),
+      flameMat
+    );
+    flameOuter.position.set(0.35, 0.35, 0);
+    group.add(flameOuter);
+
+    const flameInner = new THREE.Mesh(
+      new THREE.ConeGeometry(0.04, 0.15, 6),
+      flameInnerMat
+    );
+    flameInner.position.set(0.35, 0.33, 0);
+    group.add(flameInner);
+
+    // Point light for illumination
+    const light = new THREE.PointLight(0xff8844, 0.8, 6);
+    light.position.set(0.35, 0.4, 0);
+    group.add(light);
+
+    group.userData.mapObject = true;
+    group.userData.isWallTorch = true;
+
+    return group;
+  }
+
+  // ============================================================================
+  // Small Debris - Single piece for corridors
+  // ============================================================================
+  static createSmallDebris(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const debrisMat = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
+    const debrisDarkMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
+
+    // 2-3 debris pieces
+    const count = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < count; i++) {
+      const size = 0.06 + Math.random() * 0.1;
+      const debris = new THREE.Mesh(
+        new THREE.BoxGeometry(size, size * 0.4, size * 0.7),
+        Math.random() > 0.5 ? debrisMat : debrisDarkMat
+      );
+      debris.position.set(
+        (Math.random() - 0.5) * 0.3,
+        size * 0.2,
+        (Math.random() - 0.5) * 0.3
+      );
+      debris.rotation.y = Math.random() * Math.PI * 2;
+      group.add(debris);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // Puddle - Water/blood puddle for floor
+  // ============================================================================
+  static createPuddle(x: number, z: number, isBlood: boolean = false): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0.02, z);
+
+    const color = isBlood ? 0x5a1a1a : 0x2a3a4a;
+    const puddleMat = new THREE.MeshLambertMaterial({
+      color,
+      transparent: true,
+      opacity: 0.7,
+    });
+
+    // Main puddle shape (irregular ellipse)
+    const puddle = new THREE.Mesh(
+      new THREE.CircleGeometry(0.25 + Math.random() * 0.15, 12),
+      puddleMat
+    );
+    puddle.rotation.x = -Math.PI / 2;
+    puddle.scale.set(1, 0.6 + Math.random() * 0.4, 1);
+    puddle.rotation.z = Math.random() * Math.PI * 2;
+    group.add(puddle);
+
+    // Smaller satellite puddles
+    if (Math.random() > 0.5) {
+      const small = new THREE.Mesh(
+        new THREE.CircleGeometry(0.1 + Math.random() * 0.08, 8),
+        puddleMat
+      );
+      small.rotation.x = -Math.PI / 2;
+      small.position.set(
+        (Math.random() - 0.5) * 0.4,
+        0,
+        (Math.random() - 0.5) * 0.4
+      );
+      group.add(small);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
 }
