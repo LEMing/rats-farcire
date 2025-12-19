@@ -61,10 +61,15 @@ import { debug } from '../utils/debug';
 import { applyAimAssist, DEFAULT_AIM_ASSIST_CONFIG } from '../systems/AimAssist';
 import { calculateKnockback, processKnockback } from '../systems/KnockbackUtils';
 import { calculateScore, updateComboState } from '../systems/ScoreUtils';
+import { CleanupQueue } from '../systems/CleanupQueue';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
 // ============================================================================
+
+// Cleanup timing constants
+const ENEMY_FADE_DURATION = 500; // ms - visual fade out
+const ENEMY_REMOVE_DELAY = 600; // ms - remove after fade completes
 
 export class LocalGameLoop {
   private mapData: MapData;
@@ -86,6 +91,9 @@ export class LocalGameLoop {
 
   // Spatial partitioning for O(1) collision lookups
   private enemySpatialHash = new SpatialHash<SpatialEntity>(4);
+
+  // Cleanup queue for delayed entity removal (replaces setTimeout)
+  private cleanupQueue = new CleanupQueue();
 
   private gameTime = 0;
 
@@ -241,6 +249,9 @@ export class LocalGameLoop {
 
     // Wave management (delegated to WaveManager)
     this.waveManager.update(dt);
+
+    // Process delayed cleanup tasks (enemy removal, etc.)
+    this.cleanupQueue.update(dt);
 
     // Update wall opacity (fade walls near entities for visibility)
     this.updateWallOcclusion(dt);
@@ -861,14 +872,14 @@ export class LocalGameLoop {
       this.spawnPickup(enemy.position);
     }
 
-    // Fade out enemy over time (longer for better visual)
-    this.entities.fadeOutEnemy(enemyId, 500);
+    // Fade out enemy over time
+    this.entities.fadeOutEnemy(enemyId, ENEMY_FADE_DURATION);
 
-    // Remove after fade
-    setTimeout(() => {
+    // Schedule cleanup (game-loop safe, replaces setTimeout)
+    this.cleanupQueue.schedule(`enemy-${enemyId}`, ENEMY_REMOVE_DELAY, () => {
       this.enemies.delete(enemyId);
       this.entities.removeEntity(enemyId);
-    }, 600);
+    });
   }
 
   private spawnPickup(position: Vec3): void {
