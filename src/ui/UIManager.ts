@@ -17,6 +17,8 @@ import type { PowerUpType, WeaponType, MapData } from '@shared/types';
 import { UIEffects } from './UIEffects';
 import { GameScreens } from './GameScreens';
 import { Minimap, MinimapData } from './Minimap';
+import { ComboDisplay } from './components/ComboDisplay';
+import { HealthBar } from './components/HealthBar';
 
 export interface UIState {
   wave: number;
@@ -48,7 +50,6 @@ export interface UIState {
 
 export class UIManager {
   private elements: {
-    healthFill: HTMLElement;
     score: HTMLElement;
     ammo: HTMLElement;
     wave: HTMLElement;
@@ -56,18 +57,15 @@ export class UIManager {
     ping: HTMLElement;
     connectionStatus: HTMLElement;
     crosshair: HTMLElement;
-    comboContainer: HTMLElement;
-    comboCount: HTMLElement;
-    comboBar: HTMLElement;
     powerUpContainer: HTMLElement;
     objectiveDisplay: HTMLElement;
     carryingIndicator: HTMLElement;
     weaponDisplay: HTMLElement;
   };
 
-  private comboDisplayScale = 1;
-  private readonly COMBO_TIMEOUT = 2000;
-  private lastHealth = 100;
+  // Extracted UI components
+  private comboDisplay: ComboDisplay;
+  private healthBar: HealthBar;
 
   // Extracted subsystems
   private effects: UIEffects;
@@ -78,8 +76,16 @@ export class UIManager {
     this.effects = new UIEffects();
     this.screens = new GameScreens();
 
+    // Initialize extracted components
+    this.comboDisplay = new ComboDisplay();
+    this.healthBar = new HealthBar();
+
+    // Connect health bar damage callback to effects
+    this.healthBar.setOnDamageTaken((_damage, intensity) => {
+      this.effects.triggerDamageVignette(intensity);
+    });
+
     this.elements = {
-      healthFill: document.getElementById('health-fill')!,
       score: document.getElementById('score')!,
       ammo: document.getElementById('ammo')!,
       wave: document.getElementById('wave')!,
@@ -87,20 +93,15 @@ export class UIManager {
       ping: document.getElementById('ping')!,
       connectionStatus: document.getElementById('connection-status')!,
       crosshair: document.getElementById('crosshair')!,
-      comboContainer: this.createComboDisplay(),
-      comboCount: null!,
-      comboBar: null!,
       powerUpContainer: this.createPowerUpContainer(),
       objectiveDisplay: this.createObjectiveDisplay(),
       carryingIndicator: this.createCarryingIndicator(),
       weaponDisplay: this.createWeaponDisplay(),
     };
-    this.elements.comboCount = this.elements.comboContainer.querySelector('.combo-count')!;
-    this.elements.comboBar = this.elements.comboContainer.querySelector('.combo-bar-fill')!;
 
     // Connect screens to UI elements for hiding on game end
     this.screens.setUIElements(
-      this.elements.comboContainer,
+      this.comboDisplay.getElement(),
       this.elements.objectiveDisplay,
       this.elements.carryingIndicator
     );
@@ -296,80 +297,14 @@ export class UIManager {
     return container;
   }
 
-  private createComboDisplay(): HTMLElement {
-    const container = document.createElement('div');
-    container.id = 'combo-display';
-    container.style.cssText = `
-      position: absolute;
-      top: 50%;
-      right: 40px;
-      transform: translateY(-50%);
-      text-align: center;
-      opacity: 0;
-      transition: opacity 0.2s, transform 0.1s;
-      pointer-events: none;
-    `;
-
-    container.innerHTML = `
-      <div class="combo-count" style="
-        font-size: 48px;
-        font-weight: bold;
-        color: #ffdd00;
-        text-shadow: 0 0 10px rgba(255, 200, 0, 0.8), 2px 2px 0 #000;
-        margin-bottom: 5px;
-      ">0x</div>
-      <div class="combo-label" style="
-        font-size: 16px;
-        color: #fff;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-      ">COMBO</div>
-      <div class="combo-bar" style="
-        width: 80px;
-        height: 4px;
-        background: rgba(255,255,255,0.2);
-        margin: 8px auto 0;
-        border-radius: 2px;
-        overflow: hidden;
-      ">
-        <div class="combo-bar-fill" style="
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(90deg, #ff6600, #ffdd00);
-          transition: width 0.05s linear;
-        "></div>
-      </div>
-    `;
-
-    document.getElementById('ui-overlay')?.appendChild(container);
-    return container;
-  }
-
   // ============================================================================
   // Update Loop
   // ============================================================================
 
   update(state: UIState): void {
-    // Health bar
-    const healthPercent = (state.health / state.maxHealth) * 100;
-    this.elements.healthFill.style.width = `${healthPercent}%`;
-
-    // Detect damage taken and trigger vignette
-    if (state.health < this.lastHealth) {
-      const damageTaken = this.lastHealth - state.health;
-      const intensity = Math.min(damageTaken / 30, 1);
-      this.effects.triggerDamageVignette(intensity);
-    }
-    this.lastHealth = state.health;
-
-    // Change health bar color based on health
-    if (healthPercent <= 25) {
-      this.elements.healthFill.style.background = 'linear-gradient(90deg, #ff0000, #ff3333)';
-    } else if (healthPercent <= 50) {
-      this.elements.healthFill.style.background = 'linear-gradient(90deg, #ff6600, #ff9933)';
-    } else {
-      this.elements.healthFill.style.background = 'linear-gradient(90deg, #ff4444, #ff6666)';
-    }
+    // Health bar (delegated to component)
+    this.healthBar.update(state.health, state.maxHealth);
+    const healthPercent = this.healthBar.getHealthPercent(state.health, state.maxHealth);
 
     // Low health warning - pulsing red vignette
     this.effects.updateLowHealthPulse(healthPercent);
@@ -386,8 +321,8 @@ export class UIManager {
     this.elements.wave.textContent = state.wave.toString();
     this.elements.enemiesLeft.textContent = state.enemiesLeft.toString();
 
-    // Combo display
-    this.updateComboDisplay(state.combo, state.comboTimer);
+    // Combo display (delegated to component)
+    this.comboDisplay.update(state.combo, state.comboTimer);
 
     // Power-up display
     this.updatePowerUpDisplay(state.powerUps, state.gameTime);
@@ -401,34 +336,6 @@ export class UIManager {
     // Minimap
     if (state.minimapData && this.minimap) {
       this.minimap.update(state.minimapData, 16);
-    }
-  }
-
-  private updateComboDisplay(combo?: number, comboTimer?: number): void {
-    if (combo !== undefined && combo > 0) {
-      this.elements.comboContainer.style.opacity = '1';
-      this.elements.comboCount.textContent = `${combo}x`;
-
-      // Scale up slightly with combo
-      const targetScale = Math.min(1 + combo * 0.05, 1.5);
-      this.comboDisplayScale += (targetScale - this.comboDisplayScale) * 0.2;
-      this.elements.comboContainer.style.transform = `translateY(-50%) scale(${this.comboDisplayScale})`;
-
-      // Color intensity with combo
-      const intensity = Math.min(combo / 10, 1);
-      const r = Math.floor(255);
-      const g = Math.floor(221 - intensity * 100);
-      const b = Math.floor(0);
-      this.elements.comboCount.style.color = `rgb(${r},${g},${b})`;
-
-      // Timer bar
-      if (comboTimer !== undefined) {
-        const timerPercent = (comboTimer / this.COMBO_TIMEOUT) * 100;
-        this.elements.comboBar.style.width = `${timerPercent}%`;
-      }
-    } else {
-      this.elements.comboContainer.style.opacity = '0';
-      this.comboDisplayScale = 1;
     }
   }
 
