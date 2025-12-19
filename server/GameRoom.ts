@@ -146,9 +146,11 @@ export class GameRoom {
         aimX: 0,
         aimY: 1,
         shooting: false,
-        reload: false,
         interact: false,
         dash: false,
+        weaponSlot: null,
+        thermobaric: false,
+        escapePressed: false,
         sequence: 0,
       },
     });

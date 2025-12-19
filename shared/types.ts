@@ -199,7 +199,6 @@ export interface InputState {
   aimX: number;
   aimY: number;
   shooting: boolean;
-  reload: boolean;
   interact: boolean;
   dash: boolean;
   weaponSlot: number | null; // 1-5 for weapon switching

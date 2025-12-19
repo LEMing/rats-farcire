@@ -132,7 +132,6 @@ export class InputManager {
       aimX: normalizedAimX,
       aimY: normalizedAimY,
       shooting: this.mouseDown,
-      reload: this.keys.has('KeyR'),
       interact: this.keys.has('KeyE'),
       dash: this.keys.has('Space'),
       weaponSlot,
