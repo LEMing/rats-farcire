@@ -564,8 +564,10 @@ export class MapDecorations {
       group.add(flame);
     }
 
-    // No point light - too expensive for many candle clusters
-    // Visual flames are enough
+    // Single glow sprite for the whole cluster (cheap)
+    const glowSprite = this.createGlowSprite(0.5, 0xffaa44, 0.35);
+    glowSprite.position.set(0, 0.3, 0);
+    group.add(glowSprite);
 
     group.userData.mapObject = true;
     return group;
@@ -762,8 +764,10 @@ export class MapDecorations {
     flameInner.position.set(0.35, 0.33, 0);
     group.add(flameInner);
 
-    // No point light - too expensive for many torches
-    // Visual flame is enough
+    // Glow sprite (additive blend for soft glow effect)
+    const glowSprite = this.createGlowSprite(0.6, 0xff6600, 0.4);
+    glowSprite.position.set(0.35, 0.35, 0);
+    group.add(glowSprite);
 
     group.userData.mapObject = true;
     group.userData.isWallTorch = true;
@@ -845,5 +849,49 @@ export class MapDecorations {
 
     group.userData.mapObject = true;
     return group;
+  }
+
+  // ============================================================================
+  // Glow Sprite - Cheap glow effect using additive blending
+  // ============================================================================
+  private static createGlowSprite(size: number, color: number, opacity: number): THREE.Sprite {
+    // Create a canvas for the glow texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+
+    // Create radial gradient for soft glow
+    const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+
+    // Extract RGB from color
+    const r = (color >> 16) & 255;
+    const g = (color >> 8) & 255;
+    const b = color & 255;
+
+    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+    gradient.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, 0.5)`);
+    gradient.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, 0.2)`);
+    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 64, 64);
+
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+
+    // Create sprite material with additive blending
+    const spriteMat = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      opacity: opacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.scale.set(size, size, 1);
+
+    return sprite;
   }
 }
