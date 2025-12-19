@@ -564,10 +564,8 @@ export class MapDecorations {
       group.add(flame);
     }
 
-    // Small point light
-    const light = new THREE.PointLight(0xff8844, 0.4, 5);
-    light.position.y = 0.4;
-    group.add(light);
+    // No point light - too expensive for many candle clusters
+    // Visual flames are enough
 
     group.userData.mapObject = true;
     return group;
@@ -764,10 +762,8 @@ export class MapDecorations {
     flameInner.position.set(0.35, 0.33, 0);
     group.add(flameInner);
 
-    // Point light for illumination
-    const light = new THREE.PointLight(0xff8844, 0.8, 6);
-    light.position.set(0.35, 0.4, 0);
-    group.add(light);
+    // No point light - too expensive for many torches
+    // Visual flame is enough
 
     group.userData.mapObject = true;
     group.userData.isWallTorch = true;
