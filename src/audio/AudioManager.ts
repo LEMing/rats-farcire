@@ -40,12 +40,16 @@ export class AudioManager {
     this.setupUserInteractionHandler();
   }
 
-  async init(): Promise<void> {
+  /**
+   * Initialize with optional preloaded buffers (from GameLoader)
+   * @param preloadedBuffers Map of URL -> ArrayBuffer from cache/download
+   */
+  async init(preloadedBuffers?: Map<string, ArrayBuffer>): Promise<void> {
     if (this.initialized) return;
 
     try {
-      await this.preloadSounds();
-      await this.musicController.preload(MUSIC_TRACKS);
+      await this.preloadSounds(preloadedBuffers);
+      await this.musicController.preload(MUSIC_TRACKS, preloadedBuffers);
       this.subscribeToEvents();
       this.initialized = true;
       console.log('[AudioManager] Initialized');
@@ -54,10 +58,23 @@ export class AudioManager {
     }
   }
 
-  private async preloadSounds(): Promise<void> {
+  private async preloadSounds(preloadedBuffers?: Map<string, ArrayBuffer>): Promise<void> {
+    const audioContext = this.listener.context;
+
     const loadPromises = Object.entries(ALL_SOUND_CONFIGS).map(async ([id, config]) => {
       try {
-        const buffer = await this.loader.loadAsync(config.path);
+        let buffer: AudioBuffer;
+
+        // Check if we have preloaded data
+        const preloaded = preloadedBuffers?.get(config.path);
+        if (preloaded) {
+          // Decode ArrayBuffer to AudioBuffer
+          buffer = await audioContext.decodeAudioData(preloaded.slice(0));
+        } else {
+          // Fallback to loading directly
+          buffer = await this.loader.loadAsync(config.path);
+        }
+
         this.buffers.set(id, buffer);
 
         if (config.poolSize && config.poolSize > 1) {

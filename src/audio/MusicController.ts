@@ -22,10 +22,23 @@ export class MusicController {
     this.loader = new THREE.AudioLoader();
   }
 
-  async preload(trackConfigs: MusicTrack[]): Promise<void> {
+  async preload(trackConfigs: MusicTrack[], preloadedBuffers?: Map<string, ArrayBuffer>): Promise<void> {
+    const audioContext = this.listener.context;
+
     const loadPromises = trackConfigs.map(async (config) => {
       try {
-        const buffer = await this.loader.loadAsync(config.path);
+        let buffer: AudioBuffer;
+
+        // Check if we have preloaded data
+        const preloaded = preloadedBuffers?.get(config.path);
+        if (preloaded) {
+          // Decode ArrayBuffer to AudioBuffer
+          buffer = await audioContext.decodeAudioData(preloaded.slice(0));
+        } else {
+          // Fallback to loading directly
+          buffer = await this.loader.loadAsync(config.path);
+        }
+
         this.buffers.set(config.id, buffer);
 
         const audio = new THREE.Audio(this.listener);

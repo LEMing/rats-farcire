@@ -1,5 +1,6 @@
 import { Game } from './core/Game';
 import { MenuRenderer } from './rendering/MenuRenderer';
+import { getGameLoader } from './assets/GameLoader';
 import { debug } from './utils/debug';
 import { errorHandler } from './utils/errorHandler';
 
@@ -80,7 +81,12 @@ btnSingleplayer.addEventListener('click', async () => {
     await waitForContextRelease();
   }
   menuScreen.classList.add('hidden');
-  await game.start(false);
+
+  // Load all assets with progress display
+  const gameLoader = getGameLoader();
+  const preloadedBuffers = await gameLoader.loadAll();
+
+  await game.start(false, preloadedBuffers);
 });
 
 btnMultiplayer.addEventListener('click', async () => {
@@ -92,7 +98,12 @@ btnMultiplayer.addEventListener('click', async () => {
     await waitForContextRelease();
   }
   menuScreen.classList.add('hidden');
-  await game.start(true);
+
+  // Load all assets with progress display
+  const gameLoader = getGameLoader();
+  const preloadedBuffers = await gameLoader.loadAll();
+
+  await game.start(true, preloadedBuffers);
 });
 
 // Hide cursor during gameplay

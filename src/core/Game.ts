@@ -76,14 +76,14 @@ export class Game {
     this.resize();
   }
 
-  async start(multiplayer: boolean): Promise<void> {
+  async start(multiplayer: boolean, preloadedBuffers?: Map<string, ArrayBuffer>): Promise<void> {
     // Initialize WebGPU renderer
     await this.renderer.init();
 
     // Initialize audio system with camera for spatial audio
     const concreteRenderer = this.renderer as Renderer;
     const audioManager = createAudioManager(concreteRenderer.camera);
-    await audioManager.init();
+    await audioManager.init(preloadedBuffers);
 
     // Initialize pause menu
     this.pauseMenu = new PauseMenu(() => this.togglePause());
