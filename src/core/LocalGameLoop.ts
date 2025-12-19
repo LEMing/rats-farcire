@@ -57,6 +57,7 @@ import { UIManager } from '../ui/UIManager';
 import { EnemyAI } from '../ai/EnemyAI';
 import { Renderer } from '../rendering/Renderer';
 import { EventBus, getEventBus } from './EventBus';
+import { getAudioManager } from '../audio/AudioManager';
 import { debug } from '../utils/debug';
 
 // ============================================================================
@@ -177,6 +178,9 @@ export class LocalGameLoop {
 
     // Start wave system
     this.waveManager.start();
+
+    // Emit game started event (triggers gameplay music)
+    this.eventBus.emit('gameStarted', {});
   }
 
   private spawnInitialWeapons(): void {
@@ -310,6 +314,9 @@ export class LocalGameLoop {
       // Spawn initial afterimage
       this.entities.spawnAfterimage(this.player.id, this.player.position);
       this.lastAfterimageTime = this.gameTime;
+
+      // Play dash sound
+      getAudioManager()?.playDash();
     }
 
     // Calculate movement
@@ -410,6 +417,9 @@ export class LocalGameLoop {
 
     // Trigger muzzle flash
     this.entities.triggerMuzzleFlash(this.player.id);
+
+    // Play weapon fire sound
+    getAudioManager()?.playWeaponFire(this.player.currentWeapon, this.player.position);
 
     // Screen shake based on weapon power
     const shakeIntensity = this.player.currentWeapon === 'rocket' ? 0.3 :
@@ -534,26 +544,76 @@ export class LocalGameLoop {
 
     // Create fire ring particle effect
     this.renderer.createThermobaricEffect(this.player.position, THERMOBARIC_RADIUS);
+
+    // Play explosion sound
+    getAudioManager()?.playThermobaric(this.player.position);
   }
 
   private updateProjectiles(dt: number): void {
     const dtSeconds = dt / 1000;
     const toRemove = this.projectilesToRemove;
     toRemove.length = 0; // Clear without allocation
+    const rocketExplosions: { x: number; y: number; z: number }[] = [];
 
     for (const [id, proj] of this.projectiles) {
+      // Rocket homing behavior - steer towards nearest enemy
+      if (proj.weaponType === 'rocket') {
+        let nearestEnemy: EnemyState | null = null;
+        let nearestDist = Infinity;
+
+        for (const [, enemy] of this.enemies) {
+          if (enemy.state === 'dead') continue;
+          const dist = distance(
+            { x: proj.position.x, y: proj.position.z },
+            { x: enemy.position.x, y: enemy.position.z }
+          );
+          if (dist < nearestDist && dist < 20) {
+            nearestDist = dist;
+            nearestEnemy = enemy;
+          }
+        }
+
+        if (nearestEnemy) {
+          // Calculate direction to target
+          const toTarget = normalize({
+            x: nearestEnemy.position.x - proj.position.x,
+            y: nearestEnemy.position.z - proj.position.z,
+          });
+
+          // Current velocity direction
+          const currentSpeed = Math.sqrt(proj.velocity.x ** 2 + proj.velocity.y ** 2);
+          const currentDir = normalize({ x: proj.velocity.x, y: proj.velocity.y });
+
+          // Smoothly steer towards target (homing strength)
+          const homingStrength = 0.08;
+          const newDirX = currentDir.x + (toTarget.x - currentDir.x) * homingStrength;
+          const newDirY = currentDir.y + (toTarget.y - currentDir.y) * homingStrength;
+          const newDir = normalize({ x: newDirX, y: newDirY });
+
+          proj.velocity.x = newDir.x * currentSpeed;
+          proj.velocity.y = newDir.y * currentSpeed;
+          proj.rotation = Math.atan2(newDir.x, newDir.y);
+        }
+      }
+
       // Move projectile
       proj.position.x += proj.velocity.x * dtSeconds;
       proj.position.z += proj.velocity.y * dtSeconds;
 
       // Check lifetime
       if (this.gameTime - proj.createdAt > proj.lifetime) {
+        if (proj.weaponType === 'rocket') {
+          rocketExplosions.push({ ...proj.position });
+        }
         toRemove.push(id);
         continue;
       }
 
       // Check wall collision
       if (!isWalkable(this.mapData, proj.position.x, proj.position.z)) {
+        if (proj.weaponType === 'rocket') {
+          rocketExplosions.push({ ...proj.position });
+        }
         toRemove.push(id);
         continue;
       }
@@ -633,6 +693,12 @@ export class LocalGameLoop {
           if (enemy.health <= 0) {
             this.killEnemy(enemyId);
           }
+
+          // Rocket explodes on hit
+          if (proj.weaponType === 'rocket') {
+            rocketExplosions.push({ ...proj.position });
+          }
+
           toRemove.push(id);
           break;
         }
@@ -645,6 +711,55 @@ export class LocalGameLoop {
     for (const id of toRemove) {
       this.projectiles.delete(id);
       this.entities.removeEntity(id);
+    }
+
+    // Process rocket explosions - visual effect + area damage
+    for (const explosionPos of rocketExplosions) {
+      // Visual explosion
+      this.renderer.createRocketExplosion(explosionPos);
+
+      // Play explosion sound
+      getAudioManager()?.playPositional('rocket_explode', explosionPos);
+
+      // Area damage to nearby enemies
+      const explosionRadius = 3;
+      for (const [enemyId, enemy] of this.enemies) {
+        if (enemy.state === 'dead') continue;
+
+        const dist = distance(
+          { x: explosionPos.x, y: explosionPos.z },
+          { x: enemy.position.x, y: enemy.position.z }
+        );
+
+        if (dist <= explosionRadius) {
+          // Damage falls off with distance
+          const damageFalloff = 1 - (dist / explosionRadius) * 0.6;
+          const damage = Math.floor(40 * damageFalloff);
+          enemy.health -= damage;
+
+          // Knockback from explosion
+          const knockbackDir = normalize({
+            x: enemy.position.x - explosionPos.x,
+            y: enemy.position.z - explosionPos.z,
+          });
+          enemy.knockbackVelocity = {
+            x: knockbackDir.x * 6,
+            y: knockbackDir.y * 6,
+          };
+
+          // Damage number
+          const screenPos = this.renderer.worldToScreen(enemy.position);
+          this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true, 0);
+
+          // Kill if dead
+          if (enemy.health <= 0) {
+            this.killEnemy(enemyId);
+          } else {
+            const config = ENEMY_CONFIGS[enemy.enemyType];
+            this.entities.damageEnemy(enemyId, enemy.health, config.health);
+          }
+        }
+      }
     }
   }
 
@@ -828,8 +943,10 @@ export class LocalGameLoop {
             this.player.maxHealth,
             this.player.health + pickup.value
           );
+          getAudioManager()?.playPickup('health');
         } else if (pickup.pickupType === 'ammo') {
           this.player.ammo += pickup.value;
+          getAudioManager()?.playPickup('ammo');
         } else if (pickup.pickupType === 'powerup' && pickup.powerUpType) {
           // Apply power-up
           const expiryTime = this.gameTime + pickup.value;
@@ -838,6 +955,7 @@ export class LocalGameLoop {
           // Show power-up notification
           const config = POWERUP_CONFIGS[pickup.powerUpType];
           this.ui.showPowerUpNotification(config.name, config.color);
+          getAudioManager()?.playPickup('powerup');
         } else if (pickup.pickupType === 'weapon' && pickup.weaponType) {
           // Unlock weapon if not already owned
           if (!this.player.unlockedWeapons.includes(pickup.weaponType)) {
@@ -852,6 +970,7 @@ export class LocalGameLoop {
             this.player.ammo += 25;
             this.ui.showPowerUpNotification('+25 ENERGY', 0xffff00);
           }
+          getAudioManager()?.playPickup('weapon');
         }
         toRemove.push(id);
       }

@@ -567,6 +567,70 @@ export class Renderer {
     }
   }
 
+  createRocketExplosion(position: Vec3): void {
+    const radius = 3;
+
+    // Create expanding explosion ring
+    const ringGeom = new THREE.RingGeometry(0.3, radius, 24);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xff4400,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(ringGeom, ringMat);
+    ring.position.set(position.x, 0.15, position.z);
+    ring.rotation.x = -Math.PI / 2;
+    this.scene.add(ring);
+
+    // Create bright flash sphere
+    const flashGeom = new THREE.SphereGeometry(0.8, 16, 16);
+    const flashMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa00,
+      transparent: true,
+      opacity: 1,
+    });
+    const flash = new THREE.Mesh(flashGeom, flashMat);
+    flash.position.set(position.x, 0.5, position.z);
+    this.scene.add(flash);
+
+    // Animate explosion
+    let progress = 0;
+    const animate = () => {
+      progress += 0.08;
+      if (progress >= 1) {
+        this.scene.remove(ring);
+        this.scene.remove(flash);
+        ringGeom.dispose();
+        ringMat.dispose();
+        flashGeom.dispose();
+        flashMat.dispose();
+        return;
+      }
+      ring.scale.setScalar(progress);
+      ringMat.opacity = 0.9 * (1 - progress);
+      flash.scale.setScalar(1 + progress * 2);
+      flashMat.opacity = 1 - progress;
+      requestAnimationFrame(animate);
+    };
+    animate();
+
+    // Spawn fire particles
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * radius * 0.7;
+      const particlePos = {
+        x: position.x + Math.cos(angle) * dist,
+        y: 0.3 + Math.random() * 0.5,
+        z: position.z + Math.sin(angle) * dist,
+      };
+      this.particleSystem.spawnFireParticle(particlePos);
+    }
+
+    // Screen shake
+    this.addScreenShake(0.25);
+  }
+
   // ============================================================================
   // Particle System (delegated to ParticleSystem)
   // ============================================================================

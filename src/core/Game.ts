@@ -5,6 +5,7 @@ import { MapGenerator } from '../map/MapGenerator';
 import { NetworkClient } from '../network/NetworkClient';
 import { UIManager } from '../ui/UIManager';
 import { LocalGameLoop } from './LocalGameLoop';
+import { createAudioManager } from '../audio/AudioManager';
 import { debug } from '../utils/debug';
 import type { MapData, InputState } from '@shared/types';
 import { TICK_RATE, MAP_WIDTH, MAP_HEIGHT } from '@shared/constants';
@@ -72,6 +73,11 @@ export class Game {
   async start(multiplayer: boolean): Promise<void> {
     // Initialize WebGPU renderer
     await this.renderer.init();
+
+    // Initialize audio system with camera for spatial audio
+    const concreteRenderer = this.renderer as Renderer;
+    const audioManager = createAudioManager(concreteRenderer.camera);
+    await audioManager.init();
 
     this.isMultiplayer = multiplayer;
 
