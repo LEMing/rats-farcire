@@ -565,6 +565,88 @@ export class UIManager {
   }
 
   // ============================================================================
+  // Last Stand UI
+  // ============================================================================
+
+  private lastStandOverlay: HTMLDivElement | null = null;
+  private lastStandKillCounter: HTMLDivElement | null = null;
+
+  showLastStand(active: boolean): void {
+    if (active) {
+      // Create Last Stand overlay
+      if (!this.lastStandOverlay) {
+        this.lastStandOverlay = document.createElement('div');
+        this.lastStandOverlay.style.cssText = `
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          pointer-events: none;
+          z-index: 1000;
+          background: radial-gradient(ellipse at center, transparent 30%, rgba(255, 215, 0, 0.3) 100%);
+          animation: lastStandPulse 0.5s ease-in-out infinite alternate;
+        `;
+        document.body.appendChild(this.lastStandOverlay);
+
+        // Add title text
+        const title = document.createElement('div');
+        title.textContent = 'LAST STAND';
+        title.style.cssText = `
+          position: absolute;
+          top: 15%;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 48px;
+          font-weight: bold;
+          color: #ffd700;
+          text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 215, 0, 0.5);
+          font-family: 'Arial Black', sans-serif;
+          letter-spacing: 4px;
+          animation: lastStandTextPulse 0.3s ease-in-out infinite alternate;
+        `;
+        this.lastStandOverlay.appendChild(title);
+
+        // Add kill counter
+        this.lastStandKillCounter = document.createElement('div');
+        this.lastStandKillCounter.textContent = '0 / 3 EXTERMINATIONS';
+        this.lastStandKillCounter.style.cssText = `
+          position: absolute;
+          top: 25%;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 28px;
+          font-weight: bold;
+          color: #fff;
+          text-shadow: 0 0 10px rgba(255, 215, 0, 0.8);
+          font-family: 'Arial', sans-serif;
+        `;
+        this.lastStandOverlay.appendChild(this.lastStandKillCounter);
+      }
+    } else {
+      // Remove Last Stand overlay
+      if (this.lastStandOverlay) {
+        this.lastStandOverlay.remove();
+        this.lastStandOverlay = null;
+        this.lastStandKillCounter = null;
+      }
+    }
+  }
+
+  updateLastStandKills(kills: number, required: number): void {
+    if (this.lastStandKillCounter) {
+      this.lastStandKillCounter.textContent = `${kills} / ${required} EXTERMINATIONS`;
+      // Flash effect on kill
+      this.lastStandKillCounter.style.transform = 'translateX(-50%) scale(1.3)';
+      setTimeout(() => {
+        if (this.lastStandKillCounter) {
+          this.lastStandKillCounter.style.transform = 'translateX(-50%) scale(1)';
+        }
+      }, 100);
+    }
+  }
+
+  // ============================================================================
   // Delegated to GameScreens
   // ============================================================================
 
@@ -595,6 +677,26 @@ export class UIManager {
         50% {
           box-shadow: 0 0 25px rgba(0, 255, 255, 0.8);
           transform: translateX(-50%) scale(1.02);
+        }
+      }
+
+      @keyframes lastStandPulse {
+        0% {
+          background: radial-gradient(ellipse at center, transparent 30%, rgba(255, 215, 0, 0.2) 100%);
+        }
+        100% {
+          background: radial-gradient(ellipse at center, transparent 20%, rgba(255, 215, 0, 0.4) 100%);
+        }
+      }
+
+      @keyframes lastStandTextPulse {
+        0% {
+          text-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 215, 0, 0.5);
+          transform: translateX(-50%) scale(1);
+        }
+        100% {
+          text-shadow: 0 0 30px rgba(255, 215, 0, 1), 0 0 60px rgba(255, 215, 0, 0.8);
+          transform: translateX(-50%) scale(1.05);
         }
       }
     `;

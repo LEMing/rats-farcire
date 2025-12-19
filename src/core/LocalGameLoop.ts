@@ -11,7 +11,6 @@ import type {
 import {
   PLAYER_MAX_HEALTH,
   PLAYER_START_AMMO,
-  PLAYER_HITBOX_RADIUS,
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
   TILE_SIZE,
@@ -20,8 +19,6 @@ import {
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
   MINI_HORDE_SIZE,
-  // Weapon system
-  WEAPON_CONFIGS,
   WEAPON_SLOT_ORDER,
 } from '@shared/constants';
 import { WaveManager, SpawnRequest } from '../systems/WaveManager';
@@ -46,6 +43,7 @@ import { WeaponSystem } from '../systems/WeaponSystem';
 import { EnemyManager } from '../systems/EnemyManager';
 import { ProjectileManager } from '../systems/ProjectileManager';
 import { PickupManager } from '../systems/PickupManager';
+import { LastStandSystem } from '../systems/LastStandSystem';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -76,7 +74,7 @@ export class LocalGameLoop {
   private enemyManager!: EnemyManager;
   private projectileManager!: ProjectileManager;
   private pickupManager!: PickupManager;
-
+  private lastStandSystem!: LastStandSystem;
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
@@ -156,7 +154,30 @@ export class LocalGameLoop {
     // Initialize pickup manager
     this.pickupManager = new PickupManager({
       onPickupSpawned: (pickup) => this.entities.createPickup(pickup),
-      onPickupCollected: (pickupType) => getAudioManager()?.playPickup(pickupType),
+      onPickupCollected: (pickupType) => {
+        getAudioManager()?.playPickup(pickupType as 'health' | 'ammo' | 'powerup' | 'weapon');
+      },
+    });
+
+    // Initialize last stand system
+    this.lastStandSystem = new LastStandSystem({}, {
+      onLastStandStart: () => {
+        this.renderer.addScreenShake(1.0);
+        this.ui.showLastStand(true);
+        // TODO: Add playLastStandStart to AudioManager
+      },
+      onLastStandKill: (kills, required) => {
+        this.ui.updateLastStandKills(kills, required);
+      },
+      onLastStandSuccess: () => {
+        this.ui.showLastStand(false);
+        this.ui.showNotification('SURVIVAL PROTOCOL ENGAGED', 0xffd700);
+        this.renderer.addScreenShake(0.8);
+        // TODO: Add playLastStandSuccess to AudioManager
+      },
+      onLastStandFail: () => {
+        this.ui.showLastStand(false);
+      },
     });
   }
 
@@ -197,6 +218,9 @@ export class LocalGameLoop {
 
     this.entities.setLocalPlayerId(playerId);
     this.entities.createPlayer(this.player);
+
+    // Reset Last Stand for new life
+    this.lastStandSystem.reset();
 
     // Spawn some initial weapon pickups nearby
     this.spawnInitialWeapons();
@@ -239,6 +263,21 @@ export class LocalGameLoop {
       );
       this.player.comboCount = comboState.comboCount;
       this.player.comboTimer = comboState.comboTimer;
+    }
+
+    // Update Last Stand system
+    if (this.lastStandSystem.isActive()) {
+      const lastStandResult = this.lastStandSystem.update(this.gameTime, dt);
+      this.lastStandSystem.applyEffects(this.player);
+
+      if (lastStandResult === 'success') {
+        // Player survived Last Stand
+        this.lastStandSystem.applySuccessEffects(this.player);
+      } else if (lastStandResult === 'fail') {
+        // Last Stand failed - player dies
+        this.handlePlayerDeath();
+        return;
+      }
     }
 
     // Update player
@@ -346,10 +385,21 @@ export class LocalGameLoop {
 
     // Shooting - delegate to WeaponSystem
     if (input.shooting) {
+      // During Last Stand: unlimited ammo (ensure we have enough to shoot)
+      const isLastStand = this.lastStandSystem.isActive();
+      if (isLastStand && this.player.ammo < 100) {
+        this.player.ammo = 100;
+      }
+
       const shootResult = this.weaponSystem.shoot(this.player, this.gameTime);
       if (shootResult) {
         // Apply result to player state
         this.weaponSystem.applyShootResult(this.player, shootResult, this.gameTime);
+
+        // During Last Stand: restore ammo after shooting (unlimited)
+        if (isLastStand) {
+          this.player.ammo = 100;
+        }
 
         // Add projectiles to game
         for (const projectile of shootResult.projectiles) {
@@ -592,6 +642,9 @@ export class LocalGameLoop {
 
     enemy.state = 'dead';
     const config = ENEMY_CONFIGS[enemy.enemyType];
+
+    // Register kill with Last Stand system
+    this.lastStandSystem.registerKill();
 
     // Remove from spatial hash immediately (dead enemies don't collide)
     this.enemyManager.removeEnemy(enemyId);
@@ -842,10 +895,17 @@ export class LocalGameLoop {
         });
       }
 
-      // Check for player death
-      if (this.player.health <= 0 && !this.player.isDead) {
-        this.handlePlayerDeath();
-        break;
+      // Check for player death or Last Stand trigger
+      if (this.player.health <= 0 && !this.player.isDead && !this.lastStandSystem.isActive()) {
+        // Try to trigger Last Stand
+        if (this.lastStandSystem.tryTrigger(this.gameTime)) {
+          // Last Stand activated - keep player alive at 1 HP
+          this.player.health = 1;
+        } else {
+          // No Last Stand available - player dies
+          this.handlePlayerDeath();
+          break;
+        }
       }
     }
   }
