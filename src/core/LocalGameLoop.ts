@@ -25,8 +25,6 @@ import {
   DASH_DURATION,
   DASH_COOLDOWN,
   DASH_IFRAMES,
-  COMBO_TIMEOUT,
-  COMBO_SCORE_MULTIPLIER,
   POWERUP_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
@@ -62,6 +60,7 @@ import { Settings } from '../settings/Settings';
 import { debug } from '../utils/debug';
 import { applyAimAssist, DEFAULT_AIM_ASSIST_CONFIG } from '../systems/AimAssist';
 import { calculateKnockback, processKnockback } from '../systems/KnockbackUtils';
+import { calculateScore, updateComboState } from '../systems/ScoreUtils';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -210,12 +209,15 @@ export class LocalGameLoop {
 
     this.gameTime += dt;
 
-    // Update combo timer
+    // Update combo timer - use extracted utility
     if (this.player.comboTimer > 0) {
-      this.player.comboTimer -= dt;
-      if (this.player.comboTimer <= 0) {
-        this.player.comboCount = 0;
-      }
+      const comboState = updateComboState(
+        { comboCount: this.player.comboCount, comboTimer: this.player.comboTimer, maxCombo: this.player.maxCombo },
+        'tick',
+        dt
+      );
+      this.player.comboCount = comboState.comboCount;
+      this.player.comboTimer = comboState.comboTimer;
     }
 
     // Update player
@@ -780,14 +782,17 @@ export class LocalGameLoop {
     // Remove from spatial hash immediately (dead enemies don't collide)
     this.enemySpatialHash.remove(enemyId);
 
-    // Combo system
-    this.player.comboCount++;
-    this.player.comboTimer = COMBO_TIMEOUT;
-    this.player.maxCombo = Math.max(this.player.maxCombo, this.player.comboCount);
+    // Combo system - use extracted utility
+    const comboState = updateComboState(
+      { comboCount: this.player.comboCount, comboTimer: this.player.comboTimer, maxCombo: this.player.maxCombo },
+      'kill'
+    );
+    this.player.comboCount = comboState.comboCount;
+    this.player.comboTimer = comboState.comboTimer;
+    this.player.maxCombo = comboState.maxCombo;
 
-    // Score with combo multiplier
-    const comboMultiplier = 1 + (this.player.comboCount - 1) * COMBO_SCORE_MULTIPLIER;
-    const finalScore = Math.floor(config.score * comboMultiplier);
+    // Score with combo multiplier - use extracted utility
+    const finalScore = calculateScore(config.score, this.player.comboCount);
     this.player.score += finalScore;
     this.waveManager.onEnemyKilled();
 
