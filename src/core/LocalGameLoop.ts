@@ -1145,8 +1145,9 @@ export class LocalGameLoop {
       enemy.position.x = newX;
       enemy.position.z = newZ;
 
-      // Separation from player - prevent enemies from overlapping with player
-      const minSeparation = PLAYER_HITBOX_RADIUS + config.hitboxRadius + 0.3; // Extra buffer
+      // Separation from player - prevent enemies from physically overlapping player
+      // Use just hitbox radii (no extra buffer) so enemies can get within attack range
+      const minSeparation = PLAYER_HITBOX_RADIUS + config.hitboxRadius;
       const toPlayer = {
         x: this.player.position.x - enemy.position.x,
         y: this.player.position.z - enemy.position.z,

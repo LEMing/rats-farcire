@@ -22,6 +22,12 @@ export interface DamageState {
   lastHealth: number;
 }
 
+export interface AttackAnimState {
+  isAttacking: boolean;
+  lungePhase: number; // 0-1, where 0.5 is max lunge
+  lastAttackTime: number;
+}
+
 export interface SceneProvider {
   addToScene(object: THREE.Object3D): void;
   removeFromScene(object: THREE.Object3D): void;
@@ -42,6 +48,9 @@ export class EntityAnimator {
 
   // Damage visual state tracking
   private enemyDamageStates: Map<string, DamageState> = new Map();
+
+  // Attack animation state tracking
+  private enemyAttackStates: Map<string, AttackAnimState> = new Map();
 
   // Cached emissive meshes per entity to avoid traverse() every frame
   private entityEmissiveMeshes: Map<string, CachedEmissiveMesh[]> = new Map();
@@ -75,6 +84,7 @@ export class EntityAnimator {
   cleanupEntity(id: string): void {
     this.enemyStates.delete(id);
     this.enemyDamageStates.delete(id);
+    this.enemyAttackStates.delete(id);
     this.entityEmissiveMeshes.delete(id);
   }
 
@@ -341,6 +351,7 @@ export class EntityAnimator {
   private animateEnemy(id: string, entity: EntityVisual): void {
     this.animateSpeechBubble(id, entity);
     this.animateDamageEffects(id, entity);
+    this.animateAttack(id, entity);
     this.animateHealthBarBillboard(entity);
   }
 
@@ -444,6 +455,101 @@ export class EntityAnimator {
     const healthBar = entity.mesh.getObjectByName('healthBar');
     if (healthBar) {
       healthBar.quaternion.copy(this.sceneProvider.camera.quaternion);
+    }
+  }
+
+  /**
+   * Attack animation - lunge forward, snap back
+   */
+  private animateAttack(id: string, entity: EntityVisual): void {
+    const enemyState = this.enemyStates.get(id);
+    const isAttacking = enemyState?.state === 'attacking';
+
+    let attackState = this.enemyAttackStates.get(id);
+    if (!attackState) {
+      attackState = {
+        isAttacking: false,
+        lungePhase: 0,
+        lastAttackTime: 0,
+      };
+      this.enemyAttackStates.set(id, attackState);
+    }
+
+    const now = Date.now();
+    const attackCycleDuration = 400; // ms for full attack cycle
+
+    if (isAttacking) {
+      // Start new attack cycle if not already attacking or cycle completed
+      if (!attackState.isAttacking || attackState.lungePhase >= 1) {
+        attackState.isAttacking = true;
+        attackState.lungePhase = 0;
+        attackState.lastAttackTime = now;
+      }
+
+      // Progress through attack cycle
+      const elapsed = now - attackState.lastAttackTime;
+      attackState.lungePhase = Math.min(elapsed / attackCycleDuration, 1);
+
+      // Lunge curve: quick forward (0-0.3), hold (0.3-0.5), snap back (0.5-1.0)
+      const phase = attackState.lungePhase;
+      let lungeAmount: number;
+      let scaleX: number;
+      let scaleY: number;
+      let tiltAngle: number;
+
+      if (phase < 0.3) {
+        // Lunge forward - quick!
+        const t = phase / 0.3;
+        lungeAmount = t * 0.5; // Move forward 0.5 units
+        scaleX = 1 + t * 0.15; // Stretch forward
+        scaleY = 1 - t * 0.1; // Squash slightly
+        tiltAngle = -t * 0.3; // Tilt forward
+      } else if (phase < 0.5) {
+        // Hold at max lunge - "bite"
+        lungeAmount = 0.5;
+        scaleX = 1.15;
+        scaleY = 0.9;
+        tiltAngle = -0.3;
+      } else {
+        // Snap back
+        const t = (phase - 0.5) / 0.5;
+        const easeOut = 1 - Math.pow(1 - t, 2); // Ease out
+        lungeAmount = 0.5 * (1 - easeOut);
+        scaleX = 1 + 0.15 * (1 - easeOut);
+        scaleY = 1 - 0.1 * (1 - easeOut);
+        tiltAngle = -0.3 * (1 - easeOut);
+      }
+
+      // Apply lunge offset in facing direction
+      const body = entity.mesh.children.find(c => c.name !== 'healthBar' && c.name !== 'speechBubble');
+      if (body) {
+        // Calculate forward direction based on mesh rotation
+        const forwardX = Math.sin(entity.mesh.rotation.y);
+        const forwardZ = Math.cos(entity.mesh.rotation.y);
+        body.position.x = forwardX * lungeAmount;
+        body.position.z = forwardZ * lungeAmount;
+
+        // Apply squash/stretch
+        body.scale.set(scaleX, scaleY, 1);
+
+        // Apply tilt
+        body.rotation.x = tiltAngle;
+      }
+    } else {
+      // Reset when not attacking
+      if (attackState.isAttacking) {
+        attackState.isAttacking = false;
+        attackState.lungePhase = 0;
+
+        // Reset body position and scale
+        const body = entity.mesh.children.find(c => c.name !== 'healthBar' && c.name !== 'speechBubble');
+        if (body) {
+          body.position.x = 0;
+          body.position.z = 0;
+          body.scale.set(1, 1, 1);
+          body.rotation.x = 0;
+        }
+      }
     }
   }
 }
