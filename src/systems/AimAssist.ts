@@ -24,8 +24,8 @@ export const DEFAULT_AIM_ASSIST_CONFIG: AimAssistConfig = {
 /**
  * Entity position for aim assist calculation
  */
-interface AimTarget {
-  position: Vec3;
+export interface AimTarget {
+  position: Vec3 | { x: number; z: number };
   isDead: boolean;
 }
 

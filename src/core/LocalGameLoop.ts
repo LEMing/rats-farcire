@@ -9,59 +9,43 @@ import type {
   Vec3,
 } from '@shared/types';
 import {
-  PLAYER_SPEED,
   PLAYER_MAX_HEALTH,
   PLAYER_START_AMMO,
   PLAYER_HITBOX_RADIUS,
-  WALL_COLLISION_BUFFER,
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
   TILE_SIZE,
-  getEnemySpeedMultiplier,
-  HEALTH_PACK_VALUE,
-  AMMO_PACK_VALUE,
   PICKUP_SPAWN_CHANCE,
-  DASH_SPEED,
-  DASH_DURATION,
-  DASH_COOLDOWN,
   DASH_IFRAMES,
-  POWERUP_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
-  CELL_CARRY_SPEED_MULTIPLIER,
   MINI_HORDE_SIZE,
   // Weapon system
   WEAPON_CONFIGS,
   WEAPON_SLOT_ORDER,
-  THERMOBARIC_COOLDOWN,
-  THERMOBARIC_DAMAGE,
-  THERMOBARIC_RADIUS,
 } from '@shared/constants';
 import { WaveManager, SpawnRequest } from '../systems/WaveManager';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem';
-import { SpatialHash, SpatialEntity } from '../systems/SpatialHash';
-import type { PowerUpType } from '@shared/types';
 import {
   generateId,
-  normalize,
   distance,
   circleCollision,
-  angleBetween,
-  isWalkable,
-  isWalkableWithRadius,
 } from '@shared/utils';
 import { EntityManager } from '../ecs/EntityManager';
 import { UIManager } from '../ui/UIManager';
-import { EnemyAI } from '../ai/EnemyAI';
 import { Renderer } from '../rendering/Renderer';
 import { EventBus, getEventBus } from './EventBus';
 import { getAudioManager } from '../audio/AudioManager';
 import { Settings } from '../settings/Settings';
 import { debug } from '../utils/debug';
-import { applyAimAssist, DEFAULT_AIM_ASSIST_CONFIG } from '../systems/AimAssist';
-import { calculateKnockback, processKnockback } from '../systems/KnockbackUtils';
+import { calculateKnockback } from '../systems/KnockbackUtils';
 import { calculateScore, updateComboState } from '../systems/ScoreUtils';
 import { CleanupQueue } from '../systems/CleanupQueue';
+import { PlayerController } from '../systems/PlayerController';
+import { WeaponSystem } from '../systems/WeaponSystem';
+import { EnemyManager } from '../systems/EnemyManager';
+import { ProjectileManager } from '../systems/ProjectileManager';
+import { PickupManager } from '../systems/PickupManager';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -75,7 +59,6 @@ export class LocalGameLoop {
   private mapData: MapData;
   private entities: EntityManager;
   private ui: UIManager;
-  private ai: EnemyAI;
   private renderer: Renderer;
   private eventBus: EventBus;
   private settings: Settings;
@@ -88,9 +71,12 @@ export class LocalGameLoop {
   // Extracted systems
   private waveManager!: WaveManager;
   private objectiveSystem!: ObjectiveSystem;
+  private playerController!: PlayerController;
+  private weaponSystem!: WeaponSystem;
+  private enemyManager!: EnemyManager;
+  private projectileManager!: ProjectileManager;
+  private pickupManager!: PickupManager;
 
-  // Spatial partitioning for O(1) collision lookups
-  private enemySpatialHash = new SpatialHash<SpatialEntity>(4);
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
@@ -109,19 +95,14 @@ export class LocalGameLoop {
   // Cell delivery callback (for UI feedback)
   public onCellDelivered: ((cellNumber: number, totalCells: number) => void) | null = null;
 
-  // Track last afterimage spawn time for dash
-  private lastAfterimageTime = 0;
-
   // Reusable arrays to avoid per-frame allocations
   private readonly projectilesToRemove: string[] = [];
-  private readonly pickupsToRemove: string[] = [];
 
   constructor(mapData: MapData, entities: EntityManager, ui: UIManager, renderer: Renderer) {
     this.mapData = mapData;
     this.entities = entities;
     this.ui = ui;
     this.renderer = renderer;
-    this.ai = new EnemyAI(mapData);
     this.eventBus = getEventBus();
     this.settings = Settings.getInstance();
 
@@ -144,6 +125,38 @@ export class LocalGameLoop {
       onCellDrop: (cellId, position) => this.handleCellDrop(cellId, position),
       onCellDelivered: (cellNumber, totalCells) => this.handleCellDelivered(cellNumber, totalCells),
       onObjectiveComplete: () => this.handleObjectiveComplete(),
+    });
+
+    // Initialize player controller with callbacks
+    this.playerController = new PlayerController(mapData, {
+      onAfterimage: (playerId, position) => this.entities.spawnAfterimage(playerId, position),
+      onDashSound: () => getAudioManager()?.playDash(),
+    });
+
+    // Initialize weapon system with callbacks
+    this.weaponSystem = new WeaponSystem({
+      onMuzzleFlash: (playerId) => this.entities.triggerMuzzleFlash(playerId),
+      onWeaponFire: (weaponType, position) => getAudioManager()?.playWeaponFire(weaponType, position),
+      onWeaponSwitch: (name, color) => this.ui.showPowerUpNotification(name, color),
+      onThermobaricFire: (position) => getAudioManager()?.playThermobaric(position),
+    });
+
+    // Initialize enemy manager
+    this.enemyManager = new EnemyManager(mapData, {
+      onEnemySpawned: (enemy) => this.entities.createEnemy(enemy),
+      onEnemyMoved: (enemy) => {
+        this.entities.updateEnemyState(enemy);
+        this.entities.updateEnemy(enemy);
+      },
+    });
+
+    // Initialize projectile manager
+    this.projectileManager = new ProjectileManager(mapData);
+
+    // Initialize pickup manager
+    this.pickupManager = new PickupManager({
+      onPickupSpawned: (pickup) => this.entities.createPickup(pickup),
+      onPickupCollected: (pickupType) => getAudioManager()?.playPickup(pickupType),
     });
   }
 
@@ -305,127 +318,48 @@ export class LocalGameLoop {
   private updatePlayer(input: InputState, dt: number): void {
     if (!this.player) return;
 
-    const dtSeconds = dt / 1000;
+    // Update aim assist setting
+    this.playerController.setAimAssistEnabled(this.settings.aimAssist);
 
-    // Update dash cooldown
-    if (this.player.dashCooldown > 0) {
-      this.player.dashCooldown -= dt;
-    }
+    // Delegate movement, dash, and rotation to PlayerController
+    const enemies = Array.from(this.enemies.values()).map((e) => ({
+      position: { x: e.position.x, z: e.position.z },
+      isDead: e.state === 'dead',
+    }));
+    this.playerController.processInput(this.player, input, this.gameTime, dt, enemies);
 
-    // Start dash (cannot dash while carrying a cell)
-    if (input.dash && this.player.dashCooldown <= 0 && !this.player.isDashing && !this.player.carryingCellId) {
-      this.player.isDashing = true;
-      this.player.dashStartTime = this.gameTime;
-      this.player.dashCooldown = DASH_COOLDOWN;
-
-      // Dash direction: input direction or facing direction
-      const moveDir = normalize({ x: input.moveX, y: input.moveY });
-      if (moveDir.x !== 0 || moveDir.y !== 0) {
-        this.player.dashDirection = moveDir;
-      } else {
-        this.player.dashDirection = {
-          x: Math.sin(this.player.rotation),
-          y: Math.cos(this.player.rotation),
-        };
-      }
-
-      // Spawn initial afterimage
-      this.entities.spawnAfterimage(this.player.id, this.player.position);
-      this.lastAfterimageTime = this.gameTime;
-
-      // Play dash sound
-      getAudioManager()?.playDash();
-    }
-
-    // Calculate movement
-    let newVelX: number;
-    let newVelZ: number;
-    let newX: number;
-    let newZ: number;
-
-    if (this.player.isDashing) {
-      const dashElapsed = this.gameTime - this.player.dashStartTime;
-
-      if (dashElapsed < DASH_DURATION) {
-        // Dash movement
-        newVelX = this.player.dashDirection.x * DASH_SPEED;
-        newVelZ = this.player.dashDirection.y * DASH_SPEED;
-
-        // Spawn afterimage every 30ms
-        if (this.gameTime - this.lastAfterimageTime > 30) {
-          this.entities.spawnAfterimage(this.player.id, this.player.position);
-          this.lastAfterimageTime = this.gameTime;
-        }
-      } else {
-        // Dash ended
-        this.player.isDashing = false;
-        const moveDir = normalize({ x: input.moveX, y: input.moveY });
-        newVelX = moveDir.x * PLAYER_SPEED;
-        newVelZ = moveDir.y * PLAYER_SPEED;
-      }
-    } else {
-      // Normal movement (slower when carrying a cell)
-      const moveDir = normalize({ x: input.moveX, y: input.moveY });
-      const speedMultiplier = this.player.carryingCellId ? CELL_CARRY_SPEED_MULTIPLIER : 1;
-      newVelX = moveDir.x * PLAYER_SPEED * speedMultiplier;
-      newVelZ = moveDir.y * PLAYER_SPEED * speedMultiplier;
-    }
-
-    // Calculate new position
-    newX = this.player.position.x + newVelX * dtSeconds;
-    newZ = this.player.position.z + newVelZ * dtSeconds;
-
-    // Collision with walls (use buffer larger than hitbox for visibility)
-    if (!isWalkableWithRadius(this.mapData, newX, this.player.position.z, WALL_COLLISION_BUFFER)) {
-      newX = this.player.position.x;
-    }
-    if (!isWalkableWithRadius(this.mapData, this.player.position.x, newZ, WALL_COLLISION_BUFFER)) {
-      newZ = this.player.position.z;
-    }
-
-    this.player.position.x = newX;
-    this.player.position.z = newZ;
-    this.player.velocity = { x: newVelX, y: newVelZ };
-
-    // Rotation (aim direction) with optional aim assist
-    let aimX = input.aimX;
-    let aimY = input.aimY;
-
-    if (this.settings.aimAssist) {
-      const adjusted = this.getAimAssistAdjustment(aimX, aimY);
-      aimX = adjusted.x;
-      aimY = adjusted.y;
-    }
-
-    this.player.rotation = Math.atan2(aimX, aimY);
-
-    // Weapon switching (1-5 keys)
+    // Weapon switching (1-5 keys) - delegate to WeaponSystem
     if (input.weaponSlot !== null) {
-      this.switchWeapon(input.weaponSlot);
+      this.weaponSystem.switchWeapon(this.player, input.weaponSlot);
     }
 
-    // Thermobaric charge (F key) - panic button
-    if (input.thermobaric && this.player.thermobaricCooldown <= 0) {
-      this.useThermobaricCharge();
+    // Update weapon cooldowns
+    this.weaponSystem.updateCooldowns(this.player, dt);
+
+    // Thermobaric charge (F key) - delegate to WeaponSystem
+    if (input.thermobaric) {
+      const thermoResult = this.weaponSystem.useThermobaric(this.player);
+      if (thermoResult) {
+        this.applyThermobaricExplosion(thermoResult.position, thermoResult.radius, thermoResult.baseDamage);
+      }
     }
 
-    // Update thermobaric cooldown
-    if (this.player.thermobaricCooldown > 0) {
-      this.player.thermobaricCooldown -= dt;
-    }
+    // Shooting - delegate to WeaponSystem
+    if (input.shooting) {
+      const shootResult = this.weaponSystem.shoot(this.player, this.gameTime);
+      if (shootResult) {
+        // Apply result to player state
+        this.weaponSystem.applyShootResult(this.player, shootResult, this.gameTime);
 
-    // Get current weapon config
-    const weaponConfig = WEAPON_CONFIGS[this.player.currentWeapon];
+        // Add projectiles to game
+        for (const projectile of shootResult.projectiles) {
+          this.projectiles.set(projectile.id, projectile);
+          this.entities.createProjectile(projectile);
+        }
 
-    // Shooting (not while dashing)
-    if (input.shooting && this.player.ammo >= weaponConfig.energy && !this.player.isDashing) {
-      const timeSinceLastShot = this.gameTime - this.player.lastShootTime;
-      // Rapid fire power-up reduces cooldown
-      const hasRapidFire = this.player.powerUps.rapidFire && this.player.powerUps.rapidFire > this.gameTime;
-      const cooldown = hasRapidFire ? weaponConfig.cooldown / POWERUP_CONFIGS.rapidFire.fireRateMultiplier : weaponConfig.cooldown;
-      if (timeSinceLastShot >= cooldown) {
-        this.shoot();
-        this.player.lastShootTime = this.gameTime;
+        // Screen shake
+        this.renderer.addScreenShake(shootResult.screenShake);
+        this.eventBus.emit('screenShake', { intensity: shootResult.screenShake });
       }
     }
 
@@ -433,100 +367,11 @@ export class LocalGameLoop {
     this.entities.updatePlayer(this.player);
   }
 
-  private shoot(): void {
+  /**
+   * Apply thermobaric explosion effects - damage enemies in radius
+   */
+  private applyThermobaricExplosion(position: Vec3, radius: number, baseDamage: number): void {
     if (!this.player) return;
-
-    const weaponConfig = WEAPON_CONFIGS[this.player.currentWeapon];
-
-    // Check ammo (energy cost)
-    if (this.player.ammo < weaponConfig.energy) return;
-    this.player.ammo -= weaponConfig.energy;
-
-    // Trigger muzzle flash
-    this.entities.triggerMuzzleFlash(this.player.id);
-
-    // Play weapon fire sound
-    getAudioManager()?.playWeaponFire(this.player.currentWeapon, this.player.position);
-
-    // Screen shake based on weapon power
-    const shakeIntensity = this.player.currentWeapon === 'rocket' ? 0.3 :
-                           this.player.currentWeapon === 'shotgun' ? 0.2 :
-                           this.player.currentWeapon === 'rifle' ? 0.15 : 0.08;
-    this.renderer.addScreenShake(shakeIntensity);
-    this.eventBus.emit('screenShake', { intensity: shakeIntensity });
-
-    const baseAngle = this.player.rotation;
-
-    // Spread shot power-up doubles pellets
-    const hasSpreadShot = this.player.powerUps.spreadShot && this.player.powerUps.spreadShot > this.gameTime;
-    const pelletCount = hasSpreadShot ? weaponConfig.pellets * POWERUP_CONFIGS.spreadShot.pelletMultiplier : weaponConfig.pellets;
-    const spreadAngle = hasSpreadShot ? weaponConfig.spread * 1.5 : weaponConfig.spread;
-
-    // Fire projectiles
-    for (let i = 0; i < pelletCount; i++) {
-      // Calculate spread for multi-pellet weapons
-      let angle = baseAngle;
-      if (pelletCount > 1) {
-        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
-        const randomOffset = (Math.random() - 0.5) * 0.08;
-        angle = baseAngle + spreadOffset + randomOffset;
-      } else if (weaponConfig.spread > 0) {
-        // Single pellet with spread (like machine gun)
-        angle = baseAngle + (Math.random() - 0.5) * weaponConfig.spread;
-      }
-
-      const direction = {
-        x: Math.sin(angle),
-        y: Math.cos(angle),
-      };
-
-      const projectile: ProjectileState = {
-        id: generateId(),
-        type: 'projectile',
-        position: {
-          x: this.player.position.x + direction.x * 0.5,
-          y: 0.5,
-          z: this.player.position.z + direction.y * 0.5,
-        },
-        rotation: angle,
-        velocity: {
-          x: direction.x * weaponConfig.speed,
-          y: direction.y * weaponConfig.speed,
-        },
-        ownerId: this.player.id,
-        damage: weaponConfig.damage,
-        lifetime: weaponConfig.lifetime,
-        createdAt: this.gameTime,
-        weaponType: this.player.currentWeapon,
-      };
-
-      this.projectiles.set(projectile.id, projectile);
-      this.entities.createProjectile(projectile);
-    }
-  }
-
-  private switchWeapon(slot: number): void {
-    if (!this.player) return;
-
-    const weaponType = WEAPON_SLOT_ORDER[slot - 1];
-    if (!weaponType) return;
-
-    // Check if weapon is unlocked
-    if (this.player.unlockedWeapons.includes(weaponType)) {
-      if (this.player.currentWeapon !== weaponType) {
-        this.player.currentWeapon = weaponType;
-        // Show weapon switch notification
-        const config = WEAPON_CONFIGS[weaponType];
-        this.ui.showPowerUpNotification(config.name, config.color);
-      }
-    }
-  }
-
-  private useThermobaricCharge(): void {
-    if (!this.player) return;
-
-    // Set cooldown
-    this.player.thermobaricCooldown = THERMOBARIC_COOLDOWN;
 
     // Visual effect - expanding fire ring
     this.renderer.addScreenShake(0.5);
@@ -536,14 +381,14 @@ export class LocalGameLoop {
       if (enemy.state === 'dead') continue;
 
       const dist = distance(
-        { x: this.player.position.x, y: this.player.position.z },
+        { x: position.x, y: position.z },
         { x: enemy.position.x, y: enemy.position.z }
       );
 
-      if (dist <= THERMOBARIC_RADIUS) {
+      if (dist <= radius) {
         // Full damage at center, less at edges
-        const damageFalloff = 1 - (dist / THERMOBARIC_RADIUS) * 0.5;
-        const damage = Math.floor(THERMOBARIC_DAMAGE * damageFalloff);
+        const damageFalloff = 1 - (dist / radius) * 0.5;
+        const damage = Math.floor(baseDamage * damageFalloff);
         enemy.health -= damage;
 
         // Spawn damage number
@@ -552,7 +397,7 @@ export class LocalGameLoop {
 
         // Strong knockback
         const knockbackVel = calculateKnockback(
-          { x: this.player.position.x, y: this.player.position.z },
+          { x: position.x, y: position.z },
           { x: enemy.position.x, y: enemy.position.z },
           10
         );
@@ -568,86 +413,34 @@ export class LocalGameLoop {
     }
 
     // Create fire ring particle effect
-    this.renderer.createThermobaricEffect(this.player.position, THERMOBARIC_RADIUS);
-
-    // Play explosion sound
-    getAudioManager()?.playThermobaric(this.player.position);
+    this.renderer.createThermobaricEffect(position, radius);
   }
 
   private updateProjectiles(dt: number): void {
-    const dtSeconds = dt / 1000;
+    // Update physics (movement, homing, lifetime, wall collision) via ProjectileManager
+    const physicsResult = this.projectileManager.updatePhysics(
+      this.projectiles,
+      this.enemies,
+      this.gameTime,
+      dt
+    );
+
     const toRemove = this.projectilesToRemove;
-    toRemove.length = 0; // Clear without allocation
-    const rocketExplosions: { x: number; y: number; z: number }[] = [];
+    toRemove.length = 0;
+    toRemove.push(...physicsResult.toRemove);
 
+    const rocketExplosions = [...physicsResult.rocketExplosions];
+
+    // Check enemy collision for remaining projectiles
     for (const [id, proj] of this.projectiles) {
-      // Rocket homing behavior - steer towards nearest enemy
-      if (proj.weaponType === 'rocket') {
-        let nearestEnemy: EnemyState | null = null;
-        let nearestDist = Infinity;
-
-        for (const [, enemy] of this.enemies) {
-          if (enemy.state === 'dead') continue;
-          const dist = distance(
-            { x: proj.position.x, y: proj.position.z },
-            { x: enemy.position.x, y: enemy.position.z }
-          );
-          if (dist < nearestDist && dist < 20) {
-            nearestDist = dist;
-            nearestEnemy = enemy;
-          }
-        }
-
-        if (nearestEnemy) {
-          // Calculate direction to target
-          const toTarget = normalize({
-            x: nearestEnemy.position.x - proj.position.x,
-            y: nearestEnemy.position.z - proj.position.z,
-          });
-
-          // Current velocity direction
-          const currentSpeed = Math.sqrt(proj.velocity.x ** 2 + proj.velocity.y ** 2);
-          const currentDir = normalize({ x: proj.velocity.x, y: proj.velocity.y });
-
-          // Smoothly steer towards target (homing strength)
-          const homingStrength = 0.08;
-          const newDirX = currentDir.x + (toTarget.x - currentDir.x) * homingStrength;
-          const newDirY = currentDir.y + (toTarget.y - currentDir.y) * homingStrength;
-          const newDir = normalize({ x: newDirX, y: newDirY });
-
-          proj.velocity.x = newDir.x * currentSpeed;
-          proj.velocity.y = newDir.y * currentSpeed;
-          proj.rotation = Math.atan2(newDir.x, newDir.y);
-        }
-      }
-
-      // Move projectile
-      proj.position.x += proj.velocity.x * dtSeconds;
-      proj.position.z += proj.velocity.y * dtSeconds;
-
-      // Check lifetime
-      if (this.gameTime - proj.createdAt > proj.lifetime) {
-        if (proj.weaponType === 'rocket') {
-          rocketExplosions.push({ ...proj.position });
-        }
-        toRemove.push(id);
-        continue;
-      }
-
-      // Check wall collision
-      if (!isWalkable(this.mapData, proj.position.x, proj.position.z)) {
-        if (proj.weaponType === 'rocket') {
-          rocketExplosions.push({ ...proj.position });
-        }
-        toRemove.push(id);
-        continue;
-      }
+      // Skip projectiles already marked for removal
+      if (physicsResult.toRemove.includes(id)) continue;
 
       // Check enemy collision using spatial hash (O(1) instead of O(n))
-      const nearbyEnemies = this.enemySpatialHash.getNearby(
+      const nearbyEnemies = this.enemyManager.getNearbyEnemies(
         proj.position.x,
         proj.position.z,
-        PROJECTILE_HITBOX_RADIUS + 2 // Add buffer for largest enemy hitbox
+        PROJECTILE_HITBOX_RADIUS + 2
       );
 
       for (const spatialEnemy of nearbyEnemies) {
@@ -663,62 +456,12 @@ export class LocalGameLoop {
             config.hitboxRadius
           )
         ) {
-          const enemyId = enemy.id;
-          // Damage enemy
-          enemy.health -= proj.damage;
-
-          // Trigger damage visual effects (flash, shake, health bar)
-          this.entities.damageEnemy(enemyId, enemy.health, config.health);
-
-          // Apply knockback
-          const knockbackVel = calculateKnockback(
-            { x: proj.position.x, y: proj.position.z },
-            { x: enemy.position.x, y: enemy.position.z },
-            4
-          );
-          enemy.knockbackVelocity = knockbackVel;
-
-          // Spawn damage number
-          const screenPos = this.renderer.worldToScreen(enemy.position);
-          // Add random offset so multiple pellet hits don't stack
-          const offsetX = (Math.random() - 0.5) * 40;
-          const offsetY = (Math.random() - 0.5) * 30;
-          this.ui.spawnDamageNumber(
-            screenPos.x + offsetX,
-            screenPos.y + offsetY,
-            proj.damage,
-            false,
-            0
-          );
-
-          // Blood burst on hit (minimal particles to avoid lag)
-          this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 2);
-          this.eventBus.emit('bloodBurst', {
-            position: { ...enemy.position },
-            enemyType: enemy.enemyType,
-            intensity: 2,
-          });
-
-          // Emit enemy hit event
-          this.eventBus.emit('enemyHit', {
-            position: { ...enemy.position },
-            enemyType: enemy.enemyType,
-            damage: proj.damage,
-          });
-
-          // Trigger hitstop
-          this.eventBus.emit('hitStop', { duration: 8 });
-          if (this.onHitstop) {
-            this.onHitstop();
-          }
-
-          if (enemy.health <= 0) {
-            this.killEnemy(enemyId);
-          }
+          this.handleProjectileHit(proj, enemy);
 
           // Rocket explodes on hit
-          if (proj.weaponType === 'rocket') {
-            rocketExplosions.push({ ...proj.position });
+          const explosionPos = this.projectileManager.markForRemoval(id, this.projectiles);
+          if (explosionPos) {
+            rocketExplosions.push(explosionPos);
           }
 
           toRemove.push(id);
@@ -735,49 +478,109 @@ export class LocalGameLoop {
       this.entities.removeEntity(id);
     }
 
-    // Process rocket explosions - visual effect + area damage
+    // Process rocket explosions
     for (const explosionPos of rocketExplosions) {
-      // Visual explosion
-      this.renderer.createRocketExplosion(explosionPos);
+      this.handleRocketExplosion(explosionPos);
+    }
+  }
 
-      // Play explosion sound
-      getAudioManager()?.playPositional('rocket_explode', explosionPos);
+  /**
+   * Handle projectile hitting an enemy
+   */
+  private handleProjectileHit(proj: ProjectileState, enemy: EnemyState): void {
+    const config = ENEMY_CONFIGS[enemy.enemyType];
+    const enemyId = enemy.id;
 
-      // Area damage to nearby enemies
-      const explosionRadius = 3;
-      for (const [enemyId, enemy] of this.enemies) {
-        if (enemy.state === 'dead') continue;
+    // Damage enemy
+    enemy.health -= proj.damage;
 
-        const dist = distance(
+    // Trigger damage visual effects
+    this.entities.damageEnemy(enemyId, enemy.health, config.health);
+
+    // Apply knockback
+    const knockbackVel = calculateKnockback(
+      { x: proj.position.x, y: proj.position.z },
+      { x: enemy.position.x, y: enemy.position.z },
+      4
+    );
+    enemy.knockbackVelocity = knockbackVel;
+
+    // Spawn damage number
+    const screenPos = this.renderer.worldToScreen(enemy.position);
+    const offsetX = (Math.random() - 0.5) * 40;
+    const offsetY = (Math.random() - 0.5) * 30;
+    this.ui.spawnDamageNumber(screenPos.x + offsetX, screenPos.y + offsetY, proj.damage, false, 0);
+
+    // Blood burst on hit
+    this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 2);
+    this.eventBus.emit('bloodBurst', {
+      position: { ...enemy.position },
+      enemyType: enemy.enemyType,
+      intensity: 2,
+    });
+
+    // Emit enemy hit event
+    this.eventBus.emit('enemyHit', {
+      position: { ...enemy.position },
+      enemyType: enemy.enemyType,
+      damage: proj.damage,
+    });
+
+    // Trigger hitstop
+    this.eventBus.emit('hitStop', { duration: 8 });
+    if (this.onHitstop) {
+      this.onHitstop();
+    }
+
+    if (enemy.health <= 0) {
+      this.killEnemy(enemyId);
+    }
+  }
+
+  /**
+   * Handle rocket explosion - visual effect + area damage
+   */
+  private handleRocketExplosion(explosionPos: Vec3): void {
+    // Visual explosion
+    this.renderer.createRocketExplosion(explosionPos);
+
+    // Play explosion sound
+    getAudioManager()?.playPositional('rocket_explode', explosionPos);
+
+    // Area damage to nearby enemies
+    const explosionRadius = 3;
+    for (const [enemyId, enemy] of this.enemies) {
+      if (enemy.state === 'dead') continue;
+
+      const dist = distance(
+        { x: explosionPos.x, y: explosionPos.z },
+        { x: enemy.position.x, y: enemy.position.z }
+      );
+
+      if (dist <= explosionRadius) {
+        // Damage falls off with distance
+        const damageFalloff = 1 - (dist / explosionRadius) * 0.6;
+        const damage = Math.floor(40 * damageFalloff);
+        enemy.health -= damage;
+
+        // Knockback from explosion
+        const explosionKnockback = calculateKnockback(
           { x: explosionPos.x, y: explosionPos.z },
-          { x: enemy.position.x, y: enemy.position.z }
+          { x: enemy.position.x, y: enemy.position.z },
+          6
         );
+        enemy.knockbackVelocity = explosionKnockback;
 
-        if (dist <= explosionRadius) {
-          // Damage falls off with distance
-          const damageFalloff = 1 - (dist / explosionRadius) * 0.6;
-          const damage = Math.floor(40 * damageFalloff);
-          enemy.health -= damage;
+        // Damage number
+        const screenPos = this.renderer.worldToScreen(enemy.position);
+        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true, 0);
 
-          // Knockback from explosion
-          const explosionKnockback = calculateKnockback(
-            { x: explosionPos.x, y: explosionPos.z },
-            { x: enemy.position.x, y: enemy.position.z },
-            6
-          );
-          enemy.knockbackVelocity = explosionKnockback;
-
-          // Damage number
-          const screenPos = this.renderer.worldToScreen(enemy.position);
-          this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true, 0);
-
-          // Kill if dead
-          if (enemy.health <= 0) {
-            this.killEnemy(enemyId);
-          } else {
-            const config = ENEMY_CONFIGS[enemy.enemyType];
-            this.entities.damageEnemy(enemyId, enemy.health, config.health);
-          }
+        // Kill if dead
+        if (enemy.health <= 0) {
+          this.killEnemy(enemyId);
+        } else {
+          const config = ENEMY_CONFIGS[enemy.enemyType];
+          this.entities.damageEnemy(enemyId, enemy.health, config.health);
         }
       }
     }
@@ -791,7 +594,7 @@ export class LocalGameLoop {
     const config = ENEMY_CONFIGS[enemy.enemyType];
 
     // Remove from spatial hash immediately (dead enemies don't collide)
-    this.enemySpatialHash.remove(enemyId);
+    this.enemyManager.removeEnemy(enemyId);
 
     // Combo system - use extracted utility
     const comboState = updateComboState(
@@ -883,123 +686,35 @@ export class LocalGameLoop {
   }
 
   private spawnPickup(position: Vec3): void {
-    const isHealth = Math.random() < 0.5;
-    const pickup: PickupState = {
-      id: generateId(),
-      type: 'pickup',
-      position: { ...position },
-      rotation: 0,
-      velocity: { x: 0, y: 0 },
-      pickupType: isHealth ? 'health' : 'ammo',
-      value: isHealth ? HEALTH_PACK_VALUE : AMMO_PACK_VALUE,
-    };
-
+    const pickup = this.pickupManager.spawnPickup(position);
     this.pickups.set(pickup.id, pickup);
-    this.entities.createPickup(pickup);
   }
 
   private spawnPowerUp(position: Vec3): void {
-    const powerUpTypes: PowerUpType[] = ['rapidFire', 'spreadShot', 'vampire', 'shield'];
-    const randomType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
-
-    const pickup: PickupState = {
-      id: generateId(),
-      type: 'pickup',
-      position: { ...position },
-      rotation: 0,
-      velocity: { x: 0, y: 0 },
-      pickupType: 'powerup',
-      value: POWERUP_DURATION,
-      powerUpType: randomType,
-    };
-
+    const pickup = this.pickupManager.spawnPowerUp(position);
     this.pickups.set(pickup.id, pickup);
-    this.entities.createPickup(pickup);
   }
 
   private spawnWeaponPickup(position: Vec3): void {
     if (!this.player) return;
-
-    // Get weapons the player doesn't have yet
-    const unownedWeapons = WEAPON_SLOT_ORDER.filter(
-      (w) => !this.player!.unlockedWeapons.includes(w)
-    );
-
-    // If player has all weapons, don't spawn
-    if (unownedWeapons.length === 0) return;
-
-    // Pick a random unowned weapon
-    const randomWeapon = unownedWeapons[Math.floor(Math.random() * unownedWeapons.length)];
-
-    const pickup: PickupState = {
-      id: generateId(),
-      type: 'pickup',
-      position: { ...position },
-      rotation: 0,
-      velocity: { x: 0, y: 0 },
-      pickupType: 'weapon',
-      value: 0,
-      weaponType: randomWeapon,
-    };
-
-    this.pickups.set(pickup.id, pickup);
-    this.entities.createPickup(pickup);
+    const pickup = this.pickupManager.spawnWeaponPickup(position, this.player.unlockedWeapons);
+    if (pickup) {
+      this.pickups.set(pickup.id, pickup);
+    }
   }
 
   private updatePickups(): void {
     if (!this.player) return;
 
-    const toRemove = this.pickupsToRemove;
-    toRemove.length = 0;
+    const result = this.pickupManager.checkCollisions(this.player, this.pickups, this.gameTime);
 
-    for (const [id, pickup] of this.pickups) {
-      if (
-        circleCollision(
-          { x: this.player.position.x, y: this.player.position.z },
-          PLAYER_HITBOX_RADIUS,
-          { x: pickup.position.x, y: pickup.position.z },
-          0.5
-        )
-      ) {
-        if (pickup.pickupType === 'health') {
-          this.player.health = Math.min(
-            this.player.maxHealth,
-            this.player.health + pickup.value
-          );
-          getAudioManager()?.playPickup('health');
-        } else if (pickup.pickupType === 'ammo') {
-          this.player.ammo += pickup.value;
-          getAudioManager()?.playPickup('ammo');
-        } else if (pickup.pickupType === 'powerup' && pickup.powerUpType) {
-          // Apply power-up
-          const expiryTime = this.gameTime + pickup.value;
-          this.player.powerUps[pickup.powerUpType] = expiryTime;
-
-          // Show power-up notification
-          const config = POWERUP_CONFIGS[pickup.powerUpType];
-          this.ui.showPowerUpNotification(config.name, config.color);
-          getAudioManager()?.playPickup('powerup');
-        } else if (pickup.pickupType === 'weapon' && pickup.weaponType) {
-          // Unlock weapon if not already owned
-          if (!this.player.unlockedWeapons.includes(pickup.weaponType)) {
-            this.player.unlockedWeapons.push(pickup.weaponType);
-            // Auto-switch to new weapon
-            this.player.currentWeapon = pickup.weaponType;
-            // Show notification
-            const config = WEAPON_CONFIGS[pickup.weaponType];
-            this.ui.showPowerUpNotification(`NEW: ${config.name}`, config.color);
-          } else {
-            // Already have weapon, give ammo instead
-            this.player.ammo += 25;
-            this.ui.showPowerUpNotification('+25 ENERGY', 0xffff00);
-          }
-          getAudioManager()?.playPickup('weapon');
-        }
-        toRemove.push(id);
-      }
+    // Show notifications
+    for (const notification of result.notifications) {
+      this.ui.showPowerUpNotification(notification.message, notification.color);
     }
 
-    for (const id of toRemove) {
+    // Remove collected pickups
+    for (const id of result.collected) {
       this.pickups.delete(id);
       this.entities.removeEntity(id);
     }
@@ -1092,160 +807,79 @@ export class LocalGameLoop {
     if (!this.player) return;
 
     const dtSeconds = dt / 1000;
-    const playerPos = { x: this.player.position.x, y: this.player.position.z };
 
-    for (const [, enemy] of this.enemies) {
-      if (enemy.state === 'dead') continue;
+    // Delegate movement to EnemyManager
+    const result = this.enemyManager.updateEnemies(
+      this.enemies,
+      this.player.position,
+      this.waveManager.getWaveNumber(),
+      dt
+    );
 
-      const config = ENEMY_CONFIGS[enemy.enemyType];
+    // Handle attacking enemies - apply damage to player
+    for (const enemy of result.attackingEnemies) {
+      // Skip if player is dashing with iframes
+      if (this.player.isDashing && DASH_IFRAMES) continue;
 
-      // Apply knockback using extracted utility
-      if (enemy.knockbackVelocity && (enemy.knockbackVelocity.x !== 0 || enemy.knockbackVelocity.y !== 0)) {
-        const wallChecker = (x: number, z: number) =>
-          isWalkableWithRadius(this.mapData, x, z, WALL_COLLISION_BUFFER);
+      // Get damage per second from enemy config
+      const baseDamage = this.enemyManager.getEnemyDamage(enemy);
 
-        const kbResult = processKnockback(
-          { position: { x: enemy.position.x, y: enemy.position.z }, velocity: enemy.knockbackVelocity },
-          dtSeconds,
-          wallChecker
-        );
+      // Shield power-up reduces damage
+      const hasShield = this.player.powerUps.shield && this.player.powerUps.shield > this.gameTime;
+      const damageMultiplier = hasShield ? POWERUP_CONFIGS.shield.damageReduction : 1;
+      const damage = baseDamage * dtSeconds * damageMultiplier;
+      this.player.health -= damage;
 
-        enemy.position.x = kbResult.position.x;
-        enemy.position.z = kbResult.position.y;
-        enemy.knockbackVelocity = kbResult.velocity;
+      // Trigger damage vignette (less intense with shield)
+      if (damage > 0.5) {
+        this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+
+        // Emit player hit event
+        this.eventBus.emit('playerHit', {
+          position: { ...this.player.position },
+          damage,
+          health: this.player.health,
+        });
       }
 
-      // Get AI movement direction
-      const moveDir = this.ai.getMovementDirection(
-        enemy,
-        this.player.position,
-        this.enemies.values()
-      );
-
-      // Move enemy (speed scales with wave)
-      const speed = config.speed * getEnemySpeedMultiplier(this.waveManager.getWaveNumber());
-      let newX = enemy.position.x + moveDir.x * speed * dtSeconds;
-      let newZ = enemy.position.z + moveDir.y * speed * dtSeconds;
-
-      // Collision with walls (use buffer for visibility)
-      if (!isWalkableWithRadius(this.mapData, newX, enemy.position.z, WALL_COLLISION_BUFFER)) {
-        newX = enemy.position.x;
+      // Check for player death
+      if (this.player.health <= 0 && !this.player.isDead) {
+        this.handlePlayerDeath();
+        break;
       }
-      if (!isWalkableWithRadius(this.mapData, enemy.position.x, newZ, WALL_COLLISION_BUFFER)) {
-        newZ = enemy.position.z;
-      }
+    }
+  }
 
-      enemy.position.x = newX;
-      enemy.position.z = newZ;
+  /**
+   * Handle player death
+   */
+  private handlePlayerDeath(): void {
+    if (!this.player) return;
 
-      // Separation from player - prevent enemies from physically overlapping player
-      // Use just hitbox radii (no extra buffer) so enemies can get within attack range
-      const minSeparation = PLAYER_HITBOX_RADIUS + config.hitboxRadius;
-      const toPlayer = {
-        x: this.player.position.x - enemy.position.x,
-        y: this.player.position.z - enemy.position.z,
-      };
-      const distToPlayer = Math.sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
+    this.player.isDead = true;
+    this.player.health = 0;
 
-      if (distToPlayer < minSeparation && distToPlayer > 0.01) {
-        // Push enemy away from player
-        const overlap = minSeparation - distToPlayer;
-        const pushX = -(toPlayer.x / distToPlayer) * overlap;
-        const pushZ = -(toPlayer.y / distToPlayer) * overlap;
+    // Death effects
+    this.renderer.addScreenShake(1.5);
+    this.eventBus.emit('screenShake', { intensity: 1.5 });
 
-        // Apply push with wall collision check
-        let pushedX = enemy.position.x + pushX;
-        let pushedZ = enemy.position.z + pushZ;
+    // Blood burst for player
+    this.renderer.spawnBloodBurst(this.player.position, 'tank', 30);
+    this.renderer.spawnBloodDecal(this.player.position.x, this.player.position.z, 2);
 
-        if (!isWalkableWithRadius(this.mapData, pushedX, enemy.position.z, WALL_COLLISION_BUFFER)) {
-          pushedX = enemy.position.x;
-        }
-        if (!isWalkableWithRadius(this.mapData, enemy.position.x, pushedZ, WALL_COLLISION_BUFFER)) {
-          pushedZ = enemy.position.z;
-        }
+    // Emit player died event
+    this.eventBus.emit('playerDied', { position: { ...this.player.position } });
 
-        enemy.position.x = pushedX;
-        enemy.position.z = pushedZ;
-      }
+    // Emit game over event (lost)
+    this.eventBus.emit('gameOver', {
+      won: false,
+      score: this.player.score,
+      wave: this.waveManager.getWaveNumber(),
+    });
 
-      // Update spatial hash with new position
-      this.enemySpatialHash.update({
-        id: enemy.id,
-        x: enemy.position.x,
-        z: enemy.position.z,
-        radius: config.hitboxRadius,
-      });
-
-      // Recalculate distance after all position updates (movement + separation)
-      const finalEnemyPos = { x: enemy.position.x, y: enemy.position.z };
-      const finalDist = distance(finalEnemyPos, playerPos);
-
-      // Face movement direction (or player when attacking)
-      if (finalDist < config.attackRange * 1.5) {
-        // Close to player - face them for attack
-        enemy.rotation = angleBetween(finalEnemyPos, playerPos);
-      } else if (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.y) > 0.01) {
-        // Face movement direction
-        enemy.rotation = Math.atan2(moveDir.x, moveDir.y);
-      }
-
-      // Attack if in range (use minSeparation as effective attack range since enemies can't get closer)
-      const effectiveAttackRange = Math.max(config.attackRange, minSeparation + 0.1);
-      if (finalDist < effectiveAttackRange) {
-        enemy.state = 'attacking';
-        // Simple melee attack (damage player) - skip if player is dashing with iframes
-        if (!this.player.isDashing || !DASH_IFRAMES) {
-          // Shield power-up reduces damage
-          const hasShield = this.player.powerUps.shield && this.player.powerUps.shield > this.gameTime;
-          const damageMultiplier = hasShield ? POWERUP_CONFIGS.shield.damageReduction : 1;
-          const damage = config.damage * dtSeconds * damageMultiplier;
-          this.player.health -= damage;
-
-          // Trigger damage vignette (less intense with shield)
-          if (damage > 0.5) {
-            this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
-
-            // Emit player hit event
-            this.eventBus.emit('playerHit', {
-              position: { ...this.player.position },
-              damage,
-              health: this.player.health,
-            });
-          }
-
-          if (this.player.health <= 0 && !this.player.isDead) {
-            this.player.isDead = true;
-            this.player.health = 0;
-            // Death effects
-            this.renderer.addScreenShake(1.5);
-            this.eventBus.emit('screenShake', { intensity: 1.5 });
-            // Blood burst for player
-            this.renderer.spawnBloodBurst(this.player.position, 'tank', 30);
-            this.renderer.spawnBloodDecal(this.player.position.x, this.player.position.z, 2);
-
-            // Emit player died event
-            this.eventBus.emit('playerDied', { position: { ...this.player.position } });
-
-            // Emit game over event (lost)
-            this.eventBus.emit('gameOver', {
-              won: false,
-              score: this.player.score,
-              wave: this.waveManager.getWaveNumber(),
-            });
-
-            // Trigger death callback
-            if (this.onPlayerDeath) {
-              this.onPlayerDeath(this.player.score, this.waveManager.getWaveNumber(), this.player.maxCombo);
-            }
-          }
-        }
-      } else {
-        enemy.state = 'chasing';
-      }
-
-      // Update enemy state for speech bubble animation
-      this.entities.updateEnemyState(enemy);
-      this.entities.updateEnemy(enemy);
+    // Trigger death callback
+    if (this.onPlayerDeath) {
+      this.onPlayerDeath(this.player.score, this.waveManager.getWaveNumber(), this.player.maxCombo);
     }
   }
 
@@ -1254,36 +888,13 @@ export class LocalGameLoop {
   // ============================================================================
 
   private handleSpawnEnemy(request: SpawnRequest): void {
-    const enemyConfig = ENEMY_CONFIGS[request.enemyType];
-
-    const enemy: EnemyState = {
-      id: generateId(),
-      type: 'enemy',
-      position: {
-        x: request.spawnPoint.x * TILE_SIZE,
-        y: 0.5,
-        z: request.spawnPoint.y * TILE_SIZE,
-      },
-      rotation: 0,
-      velocity: { x: 0, y: 0 },
-      health: enemyConfig.health,
-      maxHealth: enemyConfig.health,
+    const enemy = this.enemyManager.spawnEnemy({
       enemyType: request.enemyType,
+      spawnPoint: request.spawnPoint,
       targetId: this.player?.id ?? null,
-      state: 'idle',
-      knockbackVelocity: { x: 0, y: 0 },
-    };
+    });
 
     this.enemies.set(enemy.id, enemy);
-    this.entities.createEnemy(enemy);
-
-    // Add to spatial hash for efficient collision detection
-    this.enemySpatialHash.insert({
-      id: enemy.id,
-      x: enemy.position.x,
-      z: enemy.position.z,
-      radius: enemyConfig.hitboxRadius,
-    });
   }
 
   // ============================================================================
@@ -1311,21 +922,4 @@ export class LocalGameLoop {
     this.renderer.updateWallOcclusion(entityPositions, dt / 1000);
   }
 
-  /**
-   * Apply aim assist using extracted utility function
-   */
-  private getAimAssistAdjustment(aimX: number, aimY: number): { x: number; y: number } {
-    if (!this.player) return { x: aimX, y: aimY };
-
-    const playerPos = { x: this.player.position.x, z: this.player.position.z };
-    const aim = { x: aimX, y: aimY };
-
-    // Convert enemies map to array of aim targets
-    const targets = Array.from(this.enemies.values()).map(enemy => ({
-      position: enemy.position,
-      isDead: enemy.state === 'dead',
-    }));
-
-    return applyAimAssist(playerPos, aim, targets, DEFAULT_AIM_ASSIST_CONFIG);
-  }
 }
