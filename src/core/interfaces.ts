@@ -26,9 +26,17 @@ export interface IRenderer {
   updatePowerCells(): void;
   updateThermobaricEffects(): void;
 
+  // Explosion effects
+  createThermobaricEffect(position: Vec3, radius: number): void;
+  createRocketExplosion(position: Vec3): void;
+
   // Power cell visuals
   removePowerCell(cellId: string): void;
+  addPowerCellAt(cellId: string, x: number, z: number): void;
   setTardisPowerLevel(level: number): void;
+
+  // Wall occlusion
+  updateWallOcclusion(entityPositions: Array<{ x: number; z: number }>, dt: number): void;
 }
 
 /**
