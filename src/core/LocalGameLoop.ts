@@ -1145,6 +1145,35 @@ export class LocalGameLoop {
       enemy.position.x = newX;
       enemy.position.z = newZ;
 
+      // Separation from player - prevent enemies from overlapping with player
+      const minSeparation = PLAYER_HITBOX_RADIUS + config.hitboxRadius + 0.3; // Extra buffer
+      const toPlayer = {
+        x: this.player.position.x - enemy.position.x,
+        y: this.player.position.z - enemy.position.z,
+      };
+      const distToPlayer = Math.sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y);
+
+      if (distToPlayer < minSeparation && distToPlayer > 0.01) {
+        // Push enemy away from player
+        const overlap = minSeparation - distToPlayer;
+        const pushX = -(toPlayer.x / distToPlayer) * overlap;
+        const pushZ = -(toPlayer.y / distToPlayer) * overlap;
+
+        // Apply push with wall collision check
+        let pushedX = enemy.position.x + pushX;
+        let pushedZ = enemy.position.z + pushZ;
+
+        if (!isWalkableWithRadius(this.mapData, pushedX, enemy.position.z, WALL_COLLISION_BUFFER)) {
+          pushedX = enemy.position.x;
+        }
+        if (!isWalkableWithRadius(this.mapData, enemy.position.x, pushedZ, WALL_COLLISION_BUFFER)) {
+          pushedZ = enemy.position.z;
+        }
+
+        enemy.position.x = pushedX;
+        enemy.position.z = pushedZ;
+      }
+
       // Update spatial hash with new position
       this.enemySpatialHash.update({
         id: enemy.id,
