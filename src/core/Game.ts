@@ -96,6 +96,9 @@ export class Game {
       this.renderer as Renderer
     );
 
+    // Initialize minimap with map data
+    (this.ui as UIManager).initMinimap(this.mapData);
+
     // Set up hitstop callback
     this.localLoop.onHitstop = () => {
       this.hitstopTimer = this.hitstopDuration;

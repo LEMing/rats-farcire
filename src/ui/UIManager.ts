@@ -12,10 +12,11 @@
  * - GameScreens: End-game screens (game over, victory)
  */
 
-import { POWERUP_CONFIGS } from '@shared/constants';
-import type { PowerUpType } from '@shared/types';
+import { POWERUP_CONFIGS, WEAPON_CONFIGS, WEAPON_SLOT_ORDER, THERMOBARIC_COOLDOWN } from '@shared/constants';
+import type { PowerUpType, WeaponType, MapData } from '@shared/types';
 import { UIEffects } from './UIEffects';
 import { GameScreens } from './GameScreens';
+import { Minimap, MinimapData } from './Minimap';
 
 export interface UIState {
   wave: number;
@@ -37,6 +38,12 @@ export interface UIState {
   cellsDelivered?: number;
   cellsRequired?: number;
   carryingCell?: boolean;
+  // Weapon system
+  currentWeapon?: WeaponType;
+  unlockedWeapons?: WeaponType[];
+  thermobaricCooldown?: number;
+  // Minimap data
+  minimapData?: MinimapData;
 }
 
 export class UIManager {
@@ -55,6 +62,7 @@ export class UIManager {
     powerUpContainer: HTMLElement;
     objectiveDisplay: HTMLElement;
     carryingIndicator: HTMLElement;
+    weaponDisplay: HTMLElement;
   };
 
   private comboDisplayScale = 1;
@@ -64,6 +72,7 @@ export class UIManager {
   // Extracted subsystems
   private effects: UIEffects;
   private screens: GameScreens;
+  private minimap: Minimap | null = null;
 
   constructor() {
     this.effects = new UIEffects();
@@ -84,6 +93,7 @@ export class UIManager {
       powerUpContainer: this.createPowerUpContainer(),
       objectiveDisplay: this.createObjectiveDisplay(),
       carryingIndicator: this.createCarryingIndicator(),
+      weaponDisplay: this.createWeaponDisplay(),
     };
     this.elements.comboCount = this.elements.comboContainer.querySelector('.combo-count')!;
     this.elements.comboBar = this.elements.comboContainer.querySelector('.combo-bar-fill')!;
@@ -96,6 +106,17 @@ export class UIManager {
     );
 
     this.injectStyles();
+  }
+
+  // ============================================================================
+  // Minimap Initialization
+  // ============================================================================
+
+  initMinimap(mapData: MapData): void {
+    if (this.minimap) {
+      this.minimap.destroy();
+    }
+    this.minimap = new Minimap(mapData);
   }
 
   // ============================================================================
@@ -150,24 +171,24 @@ export class UIManager {
         <div class="cell-indicator" data-index="0" style="
           width: 30px;
           height: 30px;
-          border: 2px solid #00ffff;
-          background: rgba(0, 255, 255, 0.1);
+          border: 2px solid #ffaa00;
+          background: rgba(255, 170, 0, 0.1);
           border-radius: 4px;
           transition: all 0.3s;
         "></div>
         <div class="cell-indicator" data-index="1" style="
           width: 30px;
           height: 30px;
-          border: 2px solid #00ffff;
-          background: rgba(0, 255, 255, 0.1);
+          border: 2px solid #ffaa00;
+          background: rgba(255, 170, 0, 0.1);
           border-radius: 4px;
           transition: all 0.3s;
         "></div>
         <div class="cell-indicator" data-index="2" style="
           width: 30px;
           height: 30px;
-          border: 2px solid #00ffff;
-          background: rgba(0, 255, 255, 0.1);
+          border: 2px solid #ffaa00;
+          background: rgba(255, 170, 0, 0.1);
           border-radius: 4px;
           transition: all 0.3s;
         "></div>
@@ -186,12 +207,12 @@ export class UIManager {
       left: 50%;
       transform: translateX(-50%);
       padding: 10px 20px;
-      background: rgba(0, 255, 255, 0.2);
-      border: 2px solid #00ffff;
+      background: rgba(255, 170, 0, 0.2);
+      border: 2px solid #ffaa00;
       border-radius: 8px;
       font-size: 16px;
       font-weight: bold;
-      color: #00ffff;
+      color: #ffcc00;
       text-transform: uppercase;
       letter-spacing: 2px;
       pointer-events: none;
@@ -201,10 +222,78 @@ export class UIManager {
     `;
     indicator.innerHTML = `
       <span>⚡ CARRYING POWER CELL ⚡</span>
-      <div style="font-size: 12px; margin-top: 4px; opacity: 0.7;">Shoot or press E to drop • Walk to TARDIS to deliver</div>
+      <div style="font-size: 12px; margin-top: 4px; opacity: 0.7;">Press E to drop • Walk to TARDIS to deliver</div>
     `;
     document.getElementById('ui-overlay')?.appendChild(indicator);
     return indicator;
+  }
+
+  private createWeaponDisplay(): HTMLElement {
+    const container = document.createElement('div');
+    container.id = 'weapon-display';
+    container.style.cssText = `
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      pointer-events: none;
+      z-index: 30;
+    `;
+    container.innerHTML = `
+      <div class="weapon-name" style="
+        font-size: 14px;
+        color: #fff;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        text-shadow: 0 0 10px rgba(255,255,255,0.5);
+      ">PISTOL</div>
+      <div class="weapon-slots" style="
+        display: flex;
+        gap: 6px;
+      ">
+        ${WEAPON_SLOT_ORDER.map((w, i) => `
+          <div class="weapon-slot" data-weapon="${w}" style="
+            width: 32px;
+            height: 32px;
+            border: 2px solid #444;
+            background: rgba(0,0,0,0.5);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #666;
+            transition: all 0.2s;
+          ">${i + 1}</div>
+        `).join('')}
+      </div>
+      <div class="thermobaric-bar" style="
+        width: 160px;
+        height: 6px;
+        background: rgba(255,100,0,0.2);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 4px;
+      ">
+        <div class="thermobaric-fill" style="
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, #ff6600, #ff3300);
+          transition: width 0.1s linear;
+        "></div>
+      </div>
+      <div class="thermobaric-label" style="
+        font-size: 10px;
+        color: #ff6600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      ">[F] THERMOBARIC</div>
+    `;
+    document.getElementById('ui-overlay')?.appendChild(container);
+    return container;
   }
 
   private createComboDisplay(): HTMLElement {
@@ -305,6 +394,14 @@ export class UIManager {
 
     // Objective display
     this.updateObjectiveDisplay(state.cellsDelivered, state.cellsRequired, state.carryingCell);
+
+    // Weapon display
+    this.updateWeaponDisplay(state.currentWeapon, state.unlockedWeapons, state.thermobaricCooldown);
+
+    // Minimap
+    if (state.minimapData && this.minimap) {
+      this.minimap.update(state.minimapData, 16);
+    }
   }
 
   private updateComboDisplay(combo?: number, comboTimer?: number): void {
@@ -343,10 +440,10 @@ export class UIManager {
       indicators.forEach((indicator, index) => {
         const el = indicator as HTMLElement;
         if (index < cellsDelivered) {
-          el.style.background = '#00ffff';
-          el.style.boxShadow = '0 0 15px #00ffff';
+          el.style.background = '#ffaa00';
+          el.style.boxShadow = '0 0 15px #ffaa00';
         } else {
-          el.style.background = 'rgba(0, 255, 255, 0.1)';
+          el.style.background = 'rgba(255, 170, 0, 0.1)';
           el.style.boxShadow = 'none';
         }
       });
@@ -358,6 +455,64 @@ export class UIManager {
       this.elements.carryingIndicator.style.display = 'block';
     } else {
       this.elements.carryingIndicator.style.display = 'none';
+    }
+  }
+
+  private updateWeaponDisplay(currentWeapon?: WeaponType, unlockedWeapons?: WeaponType[], thermobaricCooldown?: number): void {
+    if (!currentWeapon || !unlockedWeapons) return;
+
+    // Update weapon name
+    const weaponName = this.elements.weaponDisplay.querySelector('.weapon-name') as HTMLElement;
+    if (weaponName) {
+      const config = WEAPON_CONFIGS[currentWeapon];
+      weaponName.textContent = config.name;
+      weaponName.style.color = `#${config.color.toString(16).padStart(6, '0')}`;
+    }
+
+    // Update weapon slots
+    const slots = this.elements.weaponDisplay.querySelectorAll('.weapon-slot');
+    slots.forEach((slot) => {
+      const el = slot as HTMLElement;
+      const weapon = el.dataset.weapon as WeaponType;
+      const isUnlocked = unlockedWeapons.includes(weapon);
+      const isCurrent = weapon === currentWeapon;
+
+      if (isCurrent) {
+        const config = WEAPON_CONFIGS[weapon];
+        el.style.borderColor = `#${config.color.toString(16).padStart(6, '0')}`;
+        el.style.background = `rgba(${(config.color >> 16) & 255}, ${(config.color >> 8) & 255}, ${config.color & 255}, 0.3)`;
+        el.style.color = '#fff';
+        el.style.boxShadow = `0 0 10px #${config.color.toString(16).padStart(6, '0')}`;
+      } else if (isUnlocked) {
+        el.style.borderColor = '#888';
+        el.style.background = 'rgba(100,100,100,0.3)';
+        el.style.color = '#aaa';
+        el.style.boxShadow = 'none';
+      } else {
+        el.style.borderColor = '#333';
+        el.style.background = 'rgba(0,0,0,0.5)';
+        el.style.color = '#444';
+        el.style.boxShadow = 'none';
+      }
+    });
+
+    // Update thermobaric cooldown bar
+    const thermoFill = this.elements.weaponDisplay.querySelector('.thermobaric-fill') as HTMLElement;
+    const thermoLabel = this.elements.weaponDisplay.querySelector('.thermobaric-label') as HTMLElement;
+    if (thermoFill && thermoLabel) {
+      const cooldown = thermobaricCooldown ?? 0;
+      const readyPercent = Math.max(0, 100 - (cooldown / THERMOBARIC_COOLDOWN) * 100);
+      thermoFill.style.width = `${readyPercent}%`;
+
+      if (readyPercent >= 100) {
+        thermoLabel.textContent = '[F] THERMOBARIC READY';
+        thermoLabel.style.color = '#ff6600';
+        thermoFill.style.background = 'linear-gradient(90deg, #ff6600, #ff3300)';
+      } else {
+        thermoLabel.textContent = `[F] THERMOBARIC ${Math.ceil(cooldown / 1000)}s`;
+        thermoLabel.style.color = '#666';
+        thermoFill.style.background = '#444';
+      }
     }
   }
 

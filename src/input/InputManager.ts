@@ -23,8 +23,9 @@ export class InputManager {
 
     // Prevent default for game keys (using code)
     window.addEventListener('keydown', (e) => {
-      const gameCodes = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'Space',
-                         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+      const gameCodes = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'Space',
+                         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+                         'Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'];
       if (gameCodes.includes(e.code)) {
         e.preventDefault();
       }
@@ -107,6 +108,14 @@ export class InputManager {
 
     this.sequence++;
 
+    // Check weapon slot keys (1-5)
+    let weaponSlot: number | null = null;
+    if (this.keys.has('Digit1')) weaponSlot = 1;
+    else if (this.keys.has('Digit2')) weaponSlot = 2;
+    else if (this.keys.has('Digit3')) weaponSlot = 3;
+    else if (this.keys.has('Digit4')) weaponSlot = 4;
+    else if (this.keys.has('Digit5')) weaponSlot = 5;
+
     return {
       moveX,
       moveY,
@@ -116,6 +125,8 @@ export class InputManager {
       reload: this.keys.has('KeyR'),
       interact: this.keys.has('KeyE'),
       dash: this.keys.has('Space'),
+      weaponSlot,
+      thermobaric: this.keys.has('KeyF'),
       sequence: this.sequence,
     };
   }

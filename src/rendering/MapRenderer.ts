@@ -18,13 +18,13 @@ export interface MapRendererDependencies {
   clearDecals(): void;
 }
 
-// Wall data for smooth opacity fading
+// Wall data for smooth height cutting (Sims-style)
 interface WallData {
   mesh: THREE.Mesh;
   worldX: number;
   worldZ: number;
-  currentOpacity: number;
-  targetOpacity: number;
+  currentHeight: number;  // 0 to 1 (percentage of full height)
+  targetHeight: number;
 }
 
 export class MapRenderer {
@@ -45,12 +45,10 @@ export class MapRenderer {
   // Time tracking for animations
   private time = 0;
 
-  // Wall transparency system - individual meshes for smooth opacity animation
+  // Wall visibility - front-facing walls are always short
   private walls: WallData[] = [];
-  private readonly WALL_OPACITY_MAX = 0.85;
-  private readonly WALL_OPACITY_MIN = 0.25;
-  private readonly WALL_FADE_SPEED = 8; // opacity units per second
-  private readonly WALL_FADE_RADIUS = 4; // distance at which walls start fading
+  private readonly WALL_HEIGHT_MAX = 1.0;  // Full height for back walls
+  private readonly WALL_HEIGHT_MIN = 0.35; // Short height for front-facing walls
 
   constructor(deps: MapRendererDependencies) {
     this.deps = deps;
@@ -127,25 +125,35 @@ export class MapRenderer {
             this.addFloorSymbol(worldX, worldZ);
           }
         } else if (tile.type === 'wall') {
-          // Create individual wall mesh with its own material for opacity animation
+          // Create individual wall mesh
           const wallMat = wallBaseMat.clone();
-          wallMat.transparent = true;
-          wallMat.opacity = this.WALL_OPACITY_MAX;
 
           const wallMesh = new THREE.Mesh(wallGeom, wallMat);
-          wallMesh.position.set(worldX, TILE_SIZE / 2, worldZ);
+          const baseY = TILE_SIZE / 2;
           wallMesh.castShadow = true;
           wallMesh.receiveShadow = true;
           wallMesh.userData.mapObject = true;
+          wallMesh.userData.baseY = baseY;
+
+          // Check if wall has floor in front (camera-facing direction: -X or -Z)
+          // Camera is at +X,+Z looking toward -X,-Z, so front walls have floor at lower x or lower y
+          const hasFloorLeft = x > 0 && mapData.tiles[y]?.[x - 1]?.type === 'floor';
+          const hasFloorUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'floor';
+          const isFrontWall = hasFloorLeft || hasFloorUp;
+
+          // Front-facing walls are always short for visibility
+          const wallHeight = isFrontWall ? this.WALL_HEIGHT_MIN : this.WALL_HEIGHT_MAX;
+          wallMesh.scale.y = wallHeight;
+          wallMesh.position.set(worldX, baseY * wallHeight, worldZ);
           this.deps.scene.add(wallMesh);
 
-          // Store wall data for smooth opacity fading
+          // Store wall data (no longer animated, but keep for potential future use)
           this.walls.push({
             mesh: wallMesh,
             worldX,
             worldZ,
-            currentOpacity: this.WALL_OPACITY_MAX,
-            targetOpacity: this.WALL_OPACITY_MAX,
+            currentHeight: wallHeight,
+            targetHeight: wallHeight,
           });
 
           // Maybe add torch on walls adjacent to floor
@@ -371,39 +379,67 @@ export class MapRenderer {
     const cellGroup = new THREE.Group();
     cellGroup.position.set(x, 0, z);
 
-    // Core crystal (cyan glowing orb)
-    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
+    // Hexagonal battery core (golden/amber energy)
+    const coreGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.7, 6);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffaa00,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
     });
     const core = new THREE.Mesh(coreGeom, coreMat);
     core.position.y = 0.8;
     core.name = 'core';
     cellGroup.add(core);
 
-    // Outer glow shell
-    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
+    // Top cap (bright energy point)
+    const capGeom = new THREE.ConeGeometry(0.18, 0.25, 6);
+    const capMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    const topCap = new THREE.Mesh(capGeom, capMat);
+    topCap.position.y = 1.25;
+    topCap.name = 'topCap';
+    cellGroup.add(topCap);
+
+    // Bottom cap (inverted)
+    const bottomCap = new THREE.Mesh(capGeom, capMat);
+    bottomCap.position.y = 0.35;
+    bottomCap.rotation.x = Math.PI;
+    bottomCap.name = 'bottomCap';
+    cellGroup.add(bottomCap);
+
+    // Outer glow shell (larger hexagon)
+    const glowGeom = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 6);
     const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffcc00,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.2,
     });
     const glow = new THREE.Mesh(glowGeom, glowMat);
     glow.position.y = 0.8;
     glow.name = 'glow';
     cellGroup.add(glow);
 
-    // Base pedestal
-    const baseGeom = new THREE.CylinderGeometry(0.3, 0.4, 0.2, 8);
-    const baseMat = new THREE.MeshLambertMaterial({ color: 0x334455 });
-    const base = new THREE.Mesh(baseGeom, baseMat);
-    base.position.y = 0.1;
-    cellGroup.add(base);
+    // Orbiting energy ring 1
+    const ringGeom = new THREE.TorusGeometry(0.5, 0.04, 8, 24);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffdd00,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const ring1 = new THREE.Mesh(ringGeom, ringMat);
+    ring1.position.y = 0.8;
+    ring1.rotation.x = Math.PI / 2;
+    ring1.name = 'ring1';
+    cellGroup.add(ring1);
 
-    // Point light for glow effect
-    const light = new THREE.PointLight(0x00ffff, 1, 6);
+    // Orbiting energy ring 2 (tilted)
+    const ring2 = new THREE.Mesh(ringGeom, ringMat);
+    ring2.position.y = 0.8;
+    ring2.rotation.x = Math.PI / 3;
+    ring2.name = 'ring2';
+    cellGroup.add(ring2);
+
+    // Point light for warm glow effect
+    const light = new THREE.PointLight(0xffaa00, 1.2, 8);
     light.position.y = 0.8;
     cellGroup.add(light);
 
@@ -423,28 +459,53 @@ export class MapRenderer {
     const pulse = Math.sin(this.time * 3) * 0.5 + 0.5;
 
     for (const [, cellGroup] of this.powerCells) {
-      // Rotate and bob
       const core = cellGroup.getObjectByName('core') as THREE.Mesh;
       const glow = cellGroup.getObjectByName('glow') as THREE.Mesh;
+      const topCap = cellGroup.getObjectByName('topCap') as THREE.Mesh;
+      const bottomCap = cellGroup.getObjectByName('bottomCap') as THREE.Mesh;
+      const ring1 = cellGroup.getObjectByName('ring1') as THREE.Mesh;
+      const ring2 = cellGroup.getObjectByName('ring2') as THREE.Mesh;
+      const baseY = cellGroup.userData.baseY || 0.8;
 
-      if (core && glow) {
-        core.rotation.y += 0.02;
-        glow.rotation.y -= 0.01;
-
-        // Pulsing scale
-        const scale = 1 + pulse * 0.1;
-        glow.scale.setScalar(scale);
-
-        // Bob up and down
-        const baseY = cellGroup.userData.baseY || 0.8;
-        core.position.y = baseY + Math.sin(this.time * 2) * 0.1;
-        glow.position.y = core.position.y;
+      // Slow rotation of core battery
+      if (core) {
+        core.rotation.y += 0.01;
+        core.position.y = baseY + Math.sin(this.time * 2) * 0.08;
       }
 
-      // Update light intensity
+      // Sync caps with core
+      if (topCap && core) {
+        topCap.rotation.y = core.rotation.y;
+        topCap.position.y = core.position.y + 0.45;
+      }
+      if (bottomCap && core) {
+        bottomCap.rotation.y = core.rotation.y;
+        bottomCap.position.y = core.position.y - 0.45;
+      }
+
+      // Pulsing glow shell
+      if (glow && core) {
+        glow.rotation.y = core.rotation.y;
+        glow.position.y = core.position.y;
+        glow.scale.setScalar(1 + pulse * 0.15);
+      }
+
+      // Rotating energy rings (orbiting effect)
+      if (ring1) {
+        ring1.rotation.z += 0.03;
+        ring1.position.y = core ? core.position.y : baseY;
+      }
+      if (ring2) {
+        ring2.rotation.z -= 0.02;
+        ring2.rotation.y += 0.01;
+        ring2.position.y = core ? core.position.y : baseY;
+      }
+
+      // Update light intensity with pulse
       const light = cellGroup.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight;
       if (light) {
-        light.intensity = 0.8 + pulse * 0.4;
+        light.intensity = 1.0 + pulse * 0.5;
+        if (core) light.position.y = core.position.y;
       }
     }
   }
@@ -466,36 +527,71 @@ export class MapRenderer {
       return;
     }
 
-    // Create new cell visual
+    // Create new cell visual (matching createPowerCell design)
     const cellGroup = new THREE.Group();
     cellGroup.position.set(x, 0, z);
 
-    // Core crystal (cyan glowing orb)
-    const coreGeom = new THREE.OctahedronGeometry(0.4, 1);
+    // Hexagonal battery core (golden/amber energy)
+    const coreGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.7, 6);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffaa00,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
     });
     const core = new THREE.Mesh(coreGeom, coreMat);
     core.position.y = 0.8;
     core.name = 'core';
     cellGroup.add(core);
 
-    // Outer glow shell
-    const glowGeom = new THREE.OctahedronGeometry(0.55, 1);
+    // Top cap (bright energy point)
+    const capGeom = new THREE.ConeGeometry(0.18, 0.25, 6);
+    const capMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+    const topCap = new THREE.Mesh(capGeom, capMat);
+    topCap.position.y = 1.25;
+    topCap.name = 'topCap';
+    cellGroup.add(topCap);
+
+    // Bottom cap (inverted)
+    const bottomCap = new THREE.Mesh(capGeom, capMat);
+    bottomCap.position.y = 0.35;
+    bottomCap.rotation.x = Math.PI;
+    bottomCap.name = 'bottomCap';
+    cellGroup.add(bottomCap);
+
+    // Outer glow shell (larger hexagon)
+    const glowGeom = new THREE.CylinderGeometry(0.35, 0.35, 0.8, 6);
     const glowMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffcc00,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.2,
     });
     const glow = new THREE.Mesh(glowGeom, glowMat);
     glow.position.y = 0.8;
     glow.name = 'glow';
     cellGroup.add(glow);
 
-    // Point light for glow effect
-    const light = new THREE.PointLight(0x00ffff, 1, 6);
+    // Orbiting energy ring 1
+    const ringGeom = new THREE.TorusGeometry(0.5, 0.04, 8, 24);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffdd00,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const ring1 = new THREE.Mesh(ringGeom, ringMat);
+    ring1.position.y = 0.8;
+    ring1.rotation.x = Math.PI / 2;
+    ring1.name = 'ring1';
+    cellGroup.add(ring1);
+
+    // Orbiting energy ring 2 (tilted)
+    const ring2 = new THREE.Mesh(ringGeom, ringMat);
+    ring2.position.y = 0.8;
+    ring2.rotation.x = Math.PI / 3;
+    ring2.name = 'ring2';
+    cellGroup.add(ring2);
+
+    // Point light for warm glow effect
+    const light = new THREE.PointLight(0xffaa00, 1.2, 8);
     light.position.y = 0.8;
     cellGroup.add(light);
 
@@ -685,70 +781,24 @@ export class MapRenderer {
   }
 
   // ============================================================================
-  // Wall Transparency System (smooth opacity fade for isometric camera)
+  // Wall Visibility (static - front-facing walls are always short)
   // ============================================================================
 
   /**
-   * Update wall opacity based on entity positions.
-   * Walls near entities fade to lower opacity for visibility.
-   * Animation is smooth - opacity lerps toward target.
-   *
-   * @param entityPositions Array of entity world positions {x, z}
-   * @param dt Delta time in seconds for smooth animation
+   * Wall visibility is now set statically at build time.
+   * This method is kept for API compatibility but does nothing.
    */
   updateWallOcclusion(
-    entityPositions: Array<{ x: number; z: number }>,
-    dt: number = 0.016
+    _entityPositions: Array<{ x: number; z: number }>,
+    _dt: number = 0.016
   ): void {
-    if (this.walls.length === 0) return;
-
-    // For each wall, calculate target opacity based on distance to nearest entity
-    for (const wall of this.walls) {
-      let minDistSq = Infinity;
-
-      // Find closest entity to this wall
-      for (const entity of entityPositions) {
-        const dx = wall.worldX - entity.x;
-        const dz = wall.worldZ - entity.z;
-        const distSq = dx * dx + dz * dz;
-
-        if (distSq < minDistSq) {
-          minDistSq = distSq;
-        }
-      }
-
-      const minDist = Math.sqrt(minDistSq);
-
-      // Calculate target opacity based on distance
-      if (minDist < this.WALL_FADE_RADIUS) {
-        // Fade based on how close the entity is
-        const t = minDist / this.WALL_FADE_RADIUS;
-        wall.targetOpacity = this.WALL_OPACITY_MIN + t * (this.WALL_OPACITY_MAX - this.WALL_OPACITY_MIN);
-      } else {
-        wall.targetOpacity = this.WALL_OPACITY_MAX;
-      }
-
-      // Smoothly animate toward target opacity
-      const diff = wall.targetOpacity - wall.currentOpacity;
-      if (Math.abs(diff) > 0.001) {
-        wall.currentOpacity += Math.sign(diff) * Math.min(Math.abs(diff), this.WALL_FADE_SPEED * dt);
-
-        // Update material opacity
-        const mat = wall.mesh.material as THREE.MeshLambertMaterial;
-        mat.opacity = wall.currentOpacity;
-      }
-    }
+    // Wall heights are set statically at build time - no dynamic updates needed
   }
 
   /**
-   * Reset all walls to full opacity
+   * Reset walls - kept for API compatibility but does nothing.
    */
   resetWallOcclusion(): void {
-    for (const wall of this.walls) {
-      wall.currentOpacity = this.WALL_OPACITY_MAX;
-      wall.targetOpacity = this.WALL_OPACITY_MAX;
-      const mat = wall.mesh.material as THREE.MeshLambertMaterial;
-      mat.opacity = this.WALL_OPACITY_MAX;
-    }
+    // Wall heights are set statically - no reset needed
   }
 }

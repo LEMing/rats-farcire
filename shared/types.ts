@@ -46,6 +46,11 @@ export interface PlayerState extends Entity {
   score: number;
   isDead: boolean;
   lastShootTime: number;
+  // Weapon system
+  currentWeapon: WeaponType;
+  unlockedWeapons: WeaponType[];
+  // Thermobaric charge
+  thermobaricCooldown: number;
   // Dash ability
   dashCooldown: number;
   isDashing: boolean;
@@ -84,16 +89,19 @@ export interface ProjectileState extends Entity {
   damage: number;
   lifetime: number;
   createdAt: number;
+  weaponType?: WeaponType; // For weapon-specific visuals
 }
 
-export type PickupType = 'health' | 'ammo' | 'powerup';
+export type PickupType = 'health' | 'ammo' | 'powerup' | 'weapon';
 export type PowerUpType = 'rapidFire' | 'spreadShot' | 'vampire' | 'shield';
+export type WeaponType = 'pistol' | 'shotgun' | 'machinegun' | 'rifle' | 'rocket';
 
 export interface PickupState extends Entity {
   type: 'pickup';
   pickupType: PickupType;
   value: number;
   powerUpType?: PowerUpType;
+  weaponType?: WeaponType;
 }
 
 // ============================================================================
@@ -194,6 +202,8 @@ export interface InputState {
   reload: boolean;
   interact: boolean;
   dash: boolean;
+  weaponSlot: number | null; // 1-5 for weapon switching
+  thermobaric: boolean; // F key for thermobaric charge
   sequence: number;
 }
 

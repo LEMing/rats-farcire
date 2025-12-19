@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { PlayerState, EnemyState, ProjectileState, PickupState } from '@shared/types';
-import { COLORS, POWERUP_CONFIGS } from '@shared/constants';
+import { COLORS, POWERUP_CONFIGS, WEAPON_CONFIGS } from '@shared/constants';
 import { TargetingLaserMaterial } from '../rendering/LaserMaterial';
 import { BlurredEmblemMaterial } from '../rendering/BlurredEmblemMaterial';
 
@@ -205,21 +205,21 @@ export class EntityFactory {
     carryIndicator.visible = false; // Hidden by default
     carryIndicator.position.y = 1.8; // Above the Dalek's dome
 
-    // Mini power cell crystal
-    const miniCoreGeom = new THREE.OctahedronGeometry(0.15, 1);
+    // Mini power cell (hexagonal battery shape to match new design)
+    const miniCoreGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.25, 6);
     const miniCoreMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffaa00,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
     });
     const miniCore = new THREE.Mesh(miniCoreGeom, miniCoreMat);
     miniCore.name = 'miniCore';
     carryIndicator.add(miniCore);
 
     // Glow shell
-    const miniGlowGeom = new THREE.OctahedronGeometry(0.22, 1);
+    const miniGlowGeom = new THREE.CylinderGeometry(0.14, 0.14, 0.3, 6);
     const miniGlowMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0xffcc00,
       transparent: true,
       opacity: 0.3,
     });
@@ -227,8 +227,8 @@ export class EntityFactory {
     miniGlow.name = 'miniGlow';
     carryIndicator.add(miniGlow);
 
-    // Point light
-    const indicatorLight = new THREE.PointLight(0x00ffff, 0.5, 3);
+    // Point light (golden glow)
+    const indicatorLight = new THREE.PointLight(0xffaa00, 0.5, 3);
     carryIndicator.add(indicatorLight);
 
     return carryIndicator;
@@ -467,34 +467,222 @@ export class EntityFactory {
   }
 
   // ============================================================================
-  // Projectile Creation
+  // Projectile Creation - Unique visuals per weapon type
   // ============================================================================
 
   createProjectile(state: ProjectileState): THREE.Group {
     const group = new THREE.Group();
+    const weaponType = state.weaponType || 'pistol';
 
-    const geom = this.materialProvider.getGeometry('projectile');
-    const mat = this.materialProvider.getMaterial('projectile');
-
-    if (geom && mat) {
-      const mesh = new THREE.Mesh(geom, mat);
-      group.add(mesh);
+    switch (weaponType) {
+      case 'pistol':
+        this.createPistolProjectile(group);
+        break;
+      case 'shotgun':
+        this.createShotgunProjectile(group);
+        break;
+      case 'machinegun':
+        this.createMachinegunProjectile(group);
+        break;
+      case 'rifle':
+        this.createRifleProjectile(group);
+        break;
+      case 'rocket':
+        this.createRocketProjectile(group);
+        break;
+      default:
+        this.createPistolProjectile(group);
     }
 
-    // Add glow effect
-    const glowGeom = new THREE.SphereGeometry(0.25, 8, 8);
+    group.position.set(state.position.x, state.position.y, state.position.z);
+    group.rotation.y = -state.rotation; // Face direction of travel
+    group.userData.entityType = 'projectile';
+    group.userData.weaponType = weaponType;
+
+    return group;
+  }
+
+  // Pistol: Classic yellow energy bullet
+  private createPistolProjectile(group: THREE.Group): void {
+    const coreGeom = new THREE.SphereGeometry(0.08, 8, 8);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffff44 });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    group.add(core);
+
+    // Soft glow
+    const glowGeom = new THREE.SphereGeometry(0.15, 8, 8);
     const glowMat = new THREE.MeshBasicMaterial({
-      color: COLORS.projectile,
+      color: 0xffff88,
+      transparent: true,
+      opacity: 0.4,
+    });
+    group.add(new THREE.Mesh(glowGeom, glowMat));
+  }
+
+  // Shotgun: Orange hot pellet
+  private createShotgunProjectile(group: THREE.Group): void {
+    const coreGeom = new THREE.SphereGeometry(0.06, 6, 6);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xff6622 });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    group.add(core);
+
+    // Hot ember glow
+    const glowGeom = new THREE.SphereGeometry(0.12, 6, 6);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xff4400,
+      transparent: true,
+      opacity: 0.5,
+    });
+    group.add(new THREE.Mesh(glowGeom, glowMat));
+
+    // Sparks trailing (small spheres offset behind)
+    for (let i = 0; i < 3; i++) {
+      const sparkGeom = new THREE.SphereGeometry(0.02, 4, 4);
+      const sparkMat = new THREE.MeshBasicMaterial({
+        color: 0xffaa00,
+        transparent: true,
+        opacity: 0.6 - i * 0.15,
+      });
+      const spark = new THREE.Mesh(sparkGeom, sparkMat);
+      spark.position.z = -0.05 - i * 0.04;
+      spark.position.x = (Math.random() - 0.5) * 0.04;
+      group.add(spark);
+    }
+  }
+
+  // Machine Gun: Green tracer round (elongated)
+  private createMachinegunProjectile(group: THREE.Group): void {
+    // Elongated bullet shape
+    const coreGeom = new THREE.CapsuleGeometry(0.04, 0.15, 4, 8);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    core.rotation.x = Math.PI / 2; // Align with travel direction
+    group.add(core);
+
+    // Tracer glow trail
+    const trailGeom = new THREE.CylinderGeometry(0.02, 0.06, 0.25, 6);
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: 0x88ff88,
+      transparent: true,
+      opacity: 0.4,
+    });
+    const trail = new THREE.Mesh(trailGeom, trailMat);
+    trail.rotation.x = Math.PI / 2;
+    trail.position.z = -0.15;
+    group.add(trail);
+
+    // Outer glow
+    const glowGeom = new THREE.SphereGeometry(0.12, 6, 6);
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x44ff44,
+      transparent: true,
+      opacity: 0.25,
+    });
+    group.add(new THREE.Mesh(glowGeom, glowMat));
+  }
+
+  // Rifle: Blue high-energy plasma bolt
+  private createRifleProjectile(group: THREE.Group): void {
+    // Sharp energy core
+    const coreGeom = new THREE.OctahedronGeometry(0.08, 0);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x4488ff });
+    const core = new THREE.Mesh(coreGeom, coreMat);
+    core.rotation.z = Math.PI / 4;
+    group.add(core);
+
+    // Inner plasma glow
+    const innerGeom = new THREE.SphereGeometry(0.12, 8, 8);
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: 0x88aaff,
+      transparent: true,
+      opacity: 0.6,
+    });
+    group.add(new THREE.Mesh(innerGeom, innerMat));
+
+    // Outer energy field
+    const outerGeom = new THREE.SphereGeometry(0.2, 8, 8);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: 0x4466ff,
+      transparent: true,
+      opacity: 0.2,
+    });
+    group.add(new THREE.Mesh(outerGeom, outerMat));
+
+    // Energy trail
+    const trailGeom = new THREE.ConeGeometry(0.08, 0.3, 6);
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: 0x6688ff,
       transparent: true,
       opacity: 0.3,
     });
-    const glow = new THREE.Mesh(glowGeom, glowMat);
-    group.add(glow);
+    const trail = new THREE.Mesh(trailGeom, trailMat);
+    trail.rotation.x = -Math.PI / 2;
+    trail.position.z = -0.2;
+    group.add(trail);
+  }
 
-    group.position.set(state.position.x, state.position.y, state.position.z);
-    group.userData.entityType = 'projectile';
+  // Rocket: Large red missile with smoke trail
+  private createRocketProjectile(group: THREE.Group): void {
+    // Missile body
+    const bodyGeom = new THREE.CapsuleGeometry(0.08, 0.25, 4, 8);
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x884444 });
+    const body = new THREE.Mesh(bodyGeom, bodyMat);
+    body.rotation.x = Math.PI / 2;
+    group.add(body);
 
-    return group;
+    // Warhead tip (red)
+    const tipGeom = new THREE.ConeGeometry(0.08, 0.12, 8);
+    const tipMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+    const tip = new THREE.Mesh(tipGeom, tipMat);
+    tip.rotation.x = Math.PI / 2;
+    tip.position.z = 0.18;
+    group.add(tip);
+
+    // Fins
+    const finMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    for (let i = 0; i < 4; i++) {
+      const finGeom = new THREE.BoxGeometry(0.02, 0.12, 0.08);
+      const fin = new THREE.Mesh(finGeom, finMat);
+      fin.position.z = -0.12;
+      fin.rotation.z = (i * Math.PI) / 2;
+      fin.position.x = Math.sin((i * Math.PI) / 2) * 0.08;
+      fin.position.y = Math.cos((i * Math.PI) / 2) * 0.08;
+      group.add(fin);
+    }
+
+    // Engine glow
+    const engineGeom = new THREE.SphereGeometry(0.06, 8, 8);
+    const engineMat = new THREE.MeshBasicMaterial({ color: 0xff8800 });
+    const engine = new THREE.Mesh(engineGeom, engineMat);
+    engine.position.z = -0.18;
+    group.add(engine);
+
+    // Flame trail
+    const flameGeom = new THREE.ConeGeometry(0.1, 0.35, 8);
+    const flameMat = new THREE.MeshBasicMaterial({
+      color: 0xff6600,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const flame = new THREE.Mesh(flameGeom, flameMat);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.z = -0.35;
+    group.add(flame);
+
+    // Smoke puffs
+    for (let i = 0; i < 4; i++) {
+      const smokeGeom = new THREE.SphereGeometry(0.06 + i * 0.02, 6, 6);
+      const smokeMat = new THREE.MeshBasicMaterial({
+        color: 0x888888,
+        transparent: true,
+        opacity: 0.3 - i * 0.06,
+      });
+      const smoke = new THREE.Mesh(smokeGeom, smokeMat);
+      smoke.position.z = -0.4 - i * 0.12;
+      smoke.position.x = (Math.random() - 0.5) * 0.1;
+      smoke.position.y = (Math.random() - 0.5) * 0.1;
+      group.add(smoke);
+    }
   }
 
   // ============================================================================
@@ -504,42 +692,47 @@ export class EntityFactory {
   createPickup(state: PickupState): THREE.Group {
     const group = new THREE.Group();
 
-    const geom = this.materialProvider.getGeometry('pickup');
-    let mat: THREE.Material | undefined;
-    let glowColor: number | undefined;
-
-    if (state.pickupType === 'powerup' && state.powerUpType) {
-      // Power-up pickup with special color and glow
-      const config = POWERUP_CONFIGS[state.powerUpType];
-      mat = new THREE.MeshLambertMaterial({
-        color: config.color,
-        emissive: config.color,
-        emissiveIntensity: 0.3,
-      });
-      glowColor = config.color;
-    } else if (state.pickupType === 'health') {
-      mat = this.materialProvider.getMaterial('health');
+    // Weapon pickups get custom 3D models
+    if (state.pickupType === 'weapon' && state.weaponType) {
+      this.createWeaponPickupModel(group, state.weaponType);
     } else {
-      mat = this.materialProvider.getMaterial('ammo');
-    }
+      // Regular pickups (health, ammo, powerup)
+      const geom = this.materialProvider.getGeometry('pickup');
+      let mat: THREE.Material | undefined;
+      let glowColor: number | undefined;
 
-    if (geom && mat) {
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.castShadow = true;
-      group.add(mesh);
-    }
+      if (state.pickupType === 'powerup' && state.powerUpType) {
+        const config = POWERUP_CONFIGS[state.powerUpType];
+        mat = new THREE.MeshLambertMaterial({
+          color: config.color,
+          emissive: config.color,
+          emissiveIntensity: 0.3,
+        });
+        glowColor = config.color;
+      } else if (state.pickupType === 'health') {
+        mat = this.materialProvider.getMaterial('health');
+      } else {
+        mat = this.materialProvider.getMaterial('ammo');
+      }
 
-    // Add glow effect for power-ups
-    if (glowColor !== undefined) {
-      const glowGeom = new THREE.SphereGeometry(0.6, 8, 8);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: glowColor,
-        transparent: true,
-        opacity: 0.3,
-      });
-      const glow = new THREE.Mesh(glowGeom, glowMat);
-      glow.name = 'powerupGlow';
-      group.add(glow);
+      if (geom && mat) {
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.castShadow = true;
+        group.add(mesh);
+      }
+
+      // Add glow effect for power-ups
+      if (glowColor !== undefined) {
+        const glowGeom = new THREE.SphereGeometry(0.6, 8, 8);
+        const glowMat = new THREE.MeshBasicMaterial({
+          color: glowColor,
+          transparent: true,
+          opacity: 0.3,
+        });
+        const glow = new THREE.Mesh(glowGeom, glowMat);
+        glow.name = 'powerupGlow';
+        group.add(glow);
+      }
     }
 
     group.position.set(state.position.x, state.position.y, state.position.z);
@@ -548,8 +741,270 @@ export class EntityFactory {
     group.userData.pickupAnimation = { baseY: state.position.y, time: 0 };
     group.userData.entityType = 'pickup';
     group.userData.isPowerUp = state.pickupType === 'powerup';
+    group.userData.isWeapon = state.pickupType === 'weapon';
 
     return group;
+  }
+
+  // Create unique 3D models for weapon pickups
+  private createWeaponPickupModel(group: THREE.Group, weaponType: string): void {
+    const config = WEAPON_CONFIGS[weaponType as keyof typeof WEAPON_CONFIGS];
+    const color = config?.color || 0xffffff;
+
+    const metalMat = new THREE.MeshLambertMaterial({
+      color: 0x444455,
+      emissive: 0x111122,
+    });
+    const accentMat = new THREE.MeshBasicMaterial({
+      color: color,
+    });
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.6,
+    });
+
+    switch (weaponType) {
+      case 'pistol':
+        this.createPistolPickup(group, metalMat, accentMat);
+        break;
+      case 'shotgun':
+        this.createShotgunPickup(group, metalMat, accentMat);
+        break;
+      case 'machinegun':
+        this.createMachinegunPickup(group, metalMat, accentMat);
+        break;
+      case 'rifle':
+        this.createRiflePickup(group, metalMat, accentMat);
+        break;
+      case 'rocket':
+        this.createRocketPickup(group, metalMat, accentMat);
+        break;
+    }
+
+    // Glowing base platform
+    const baseGeom = new THREE.CylinderGeometry(0.4, 0.5, 0.1, 16);
+    const baseMat = new THREE.MeshBasicMaterial({
+      color: color,
+      transparent: true,
+      opacity: 0.4,
+    });
+    const base = new THREE.Mesh(baseGeom, baseMat);
+    base.position.y = -0.3;
+    group.add(base);
+
+    // Outer glow
+    const glowGeom = new THREE.SphereGeometry(0.7, 8, 8);
+    const outerGlow = new THREE.Mesh(glowGeom, glowMat);
+    outerGlow.material.opacity = 0.2;
+    outerGlow.name = 'powerupGlow';
+    group.add(outerGlow);
+  }
+
+  // Pistol: Compact handgun shape
+  private createPistolPickup(group: THREE.Group, metalMat: THREE.Material, accentMat: THREE.Material): void {
+    // Handle/grip
+    const gripGeom = new THREE.BoxGeometry(0.12, 0.25, 0.08);
+    const grip = new THREE.Mesh(gripGeom, metalMat);
+    grip.position.set(0, -0.05, 0);
+    group.add(grip);
+
+    // Slide/body
+    const slideGeom = new THREE.BoxGeometry(0.1, 0.12, 0.3);
+    const slide = new THREE.Mesh(slideGeom, metalMat);
+    slide.position.set(0, 0.1, 0.05);
+    group.add(slide);
+
+    // Barrel
+    const barrelGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.15, 8);
+    const barrel = new THREE.Mesh(barrelGeom, accentMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.1, 0.25);
+    group.add(barrel);
+
+    // Trigger guard
+    const guardGeom = new THREE.TorusGeometry(0.04, 0.015, 8, 8, Math.PI);
+    const guard = new THREE.Mesh(guardGeom, metalMat);
+    guard.rotation.x = Math.PI / 2;
+    guard.position.set(0, -0.02, 0.08);
+    group.add(guard);
+  }
+
+  // Shotgun: Double barrel design
+  private createShotgunPickup(group: THREE.Group, metalMat: THREE.Material, accentMat: THREE.Material): void {
+    // Stock
+    const stockGeom = new THREE.BoxGeometry(0.1, 0.12, 0.3);
+    const stockMat = new THREE.MeshLambertMaterial({ color: 0x663300 }); // Wood
+    const stock = new THREE.Mesh(stockGeom, stockMat);
+    stock.position.set(0, 0, -0.25);
+    group.add(stock);
+
+    // Receiver
+    const receiverGeom = new THREE.BoxGeometry(0.12, 0.14, 0.15);
+    const receiver = new THREE.Mesh(receiverGeom, metalMat);
+    receiver.position.set(0, 0.02, -0.02);
+    group.add(receiver);
+
+    // Double barrels
+    for (let i = -1; i <= 1; i += 2) {
+      const barrelGeom = new THREE.CylinderGeometry(0.035, 0.04, 0.5, 8);
+      const barrel = new THREE.Mesh(barrelGeom, accentMat);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.set(i * 0.04, 0.03, 0.3);
+      group.add(barrel);
+    }
+
+    // Forend (pump grip)
+    const forendGeom = new THREE.BoxGeometry(0.14, 0.1, 0.12);
+    const forend = new THREE.Mesh(forendGeom, stockMat);
+    forend.position.set(0, -0.02, 0.15);
+    group.add(forend);
+  }
+
+  // Machine Gun: Belt-fed with ammo box
+  private createMachinegunPickup(group: THREE.Group, metalMat: THREE.Material, accentMat: THREE.Material): void {
+    // Main body
+    const bodyGeom = new THREE.BoxGeometry(0.15, 0.15, 0.5);
+    const body = new THREE.Mesh(bodyGeom, metalMat);
+    body.position.set(0, 0, 0);
+    group.add(body);
+
+    // Barrel with cooling holes
+    const barrelGeom = new THREE.CylinderGeometry(0.04, 0.05, 0.4, 8);
+    const barrel = new THREE.Mesh(barrelGeom, accentMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, 0.4);
+    group.add(barrel);
+
+    // Barrel shroud (perforated)
+    const shroudGeom = new THREE.CylinderGeometry(0.06, 0.06, 0.3, 12);
+    const shroudMat = new THREE.MeshLambertMaterial({
+      color: 0x333333,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const shroud = new THREE.Mesh(shroudGeom, shroudMat);
+    shroud.rotation.x = Math.PI / 2;
+    shroud.position.set(0, 0.02, 0.35);
+    group.add(shroud);
+
+    // Ammo box
+    const ammoGeom = new THREE.BoxGeometry(0.12, 0.15, 0.1);
+    const ammoMat = new THREE.MeshLambertMaterial({ color: 0x556644 }); // Military green
+    const ammo = new THREE.Mesh(ammoGeom, ammoMat);
+    ammo.position.set(0.12, -0.08, -0.05);
+    group.add(ammo);
+
+    // Handle
+    const handleGeom = new THREE.BoxGeometry(0.08, 0.12, 0.06);
+    const handle = new THREE.Mesh(handleGeom, metalMat);
+    handle.position.set(0, 0.12, 0.05);
+    group.add(handle);
+  }
+
+  // Rifle: Sleek sniper-style
+  private createRiflePickup(group: THREE.Group, metalMat: THREE.Material, accentMat: THREE.Material): void {
+    // Stock
+    const stockGeom = new THREE.BoxGeometry(0.08, 0.1, 0.35);
+    const stockMat = new THREE.MeshLambertMaterial({ color: 0x442200 }); // Dark wood
+    const stock = new THREE.Mesh(stockGeom, stockMat);
+    stock.position.set(0, 0, -0.3);
+    group.add(stock);
+
+    // Receiver
+    const receiverGeom = new THREE.BoxGeometry(0.1, 0.12, 0.2);
+    const receiver = new THREE.Mesh(receiverGeom, metalMat);
+    receiver.position.set(0, 0.02, -0.02);
+    group.add(receiver);
+
+    // Long barrel
+    const barrelGeom = new THREE.CylinderGeometry(0.025, 0.03, 0.6, 8);
+    const barrel = new THREE.Mesh(barrelGeom, accentMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.02, 0.4);
+    group.add(barrel);
+
+    // Scope
+    const scopeGeom = new THREE.CylinderGeometry(0.035, 0.035, 0.2, 8);
+    const scopeMat = new THREE.MeshLambertMaterial({ color: 0x222233 });
+    const scope = new THREE.Mesh(scopeGeom, scopeMat);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.1, 0.05);
+    group.add(scope);
+
+    // Scope lenses (glowing)
+    const lensMat = new THREE.MeshBasicMaterial({ color: 0x4488ff });
+    const frontLens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 8), lensMat);
+    frontLens.position.set(0, 0.1, 0.16);
+    group.add(frontLens);
+    const backLens = new THREE.Mesh(new THREE.CircleGeometry(0.025, 8), lensMat);
+    backLens.rotation.y = Math.PI;
+    backLens.position.set(0, 0.1, -0.06);
+    group.add(backLens);
+
+    // Bipod
+    for (let i = -1; i <= 1; i += 2) {
+      const legGeom = new THREE.CylinderGeometry(0.01, 0.01, 0.15, 6);
+      const leg = new THREE.Mesh(legGeom, metalMat);
+      leg.position.set(i * 0.06, -0.1, 0.2);
+      leg.rotation.z = i * 0.3;
+      group.add(leg);
+    }
+  }
+
+  // Rocket Launcher: Tube with grip
+  private createRocketPickup(group: THREE.Group, metalMat: THREE.Material, accentMat: THREE.Material): void {
+    // Main tube
+    const tubeGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.7, 12);
+    const tubeMat = new THREE.MeshLambertMaterial({ color: 0x445544 }); // Military green
+    const tube = new THREE.Mesh(tubeGeom, tubeMat);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, 0.05, 0);
+    group.add(tube);
+
+    // Front opening (darker)
+    const frontGeom = new THREE.CylinderGeometry(0.08, 0.1, 0.05, 12);
+    const frontMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+    const front = new THREE.Mesh(frontGeom, frontMat);
+    front.rotation.x = Math.PI / 2;
+    front.position.set(0, 0.05, 0.36);
+    group.add(front);
+
+    // Rear exhaust warning stripes
+    const rearGeom = new THREE.CylinderGeometry(0.1, 0.08, 0.08, 12);
+    const rearMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+    const rear = new THREE.Mesh(rearGeom, rearMat);
+    rear.rotation.x = Math.PI / 2;
+    rear.position.set(0, 0.05, -0.38);
+    group.add(rear);
+
+    // Grip
+    const gripGeom = new THREE.BoxGeometry(0.08, 0.18, 0.08);
+    const grip = new THREE.Mesh(gripGeom, metalMat);
+    grip.position.set(0, -0.1, -0.05);
+    group.add(grip);
+
+    // Trigger guard
+    const guardGeom = new THREE.TorusGeometry(0.04, 0.012, 8, 8, Math.PI);
+    const guard = new THREE.Mesh(guardGeom, metalMat);
+    guard.rotation.x = Math.PI / 2;
+    guard.rotation.z = Math.PI;
+    guard.position.set(0, -0.08, 0.02);
+    group.add(guard);
+
+    // Sight
+    const sightGeom = new THREE.BoxGeometry(0.04, 0.08, 0.15);
+    const sight = new THREE.Mesh(sightGeom, accentMat);
+    sight.position.set(0, 0.18, 0.1);
+    group.add(sight);
+
+    // Loaded rocket visible (tip)
+    const rocketTipGeom = new THREE.ConeGeometry(0.06, 0.1, 8);
+    const rocketTipMat = new THREE.MeshBasicMaterial({ color: 0xff6644 });
+    const rocketTip = new THREE.Mesh(rocketTipGeom, rocketTipMat);
+    rocketTip.rotation.x = Math.PI / 2;
+    rocketTip.position.set(0, 0.05, 0.42);
+    group.add(rocketTip);
   }
 
   // ============================================================================

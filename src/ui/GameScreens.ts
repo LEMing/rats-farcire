@@ -42,6 +42,9 @@ export class GameScreens {
   showVictory(score: number, wave: number, maxCombo: number): void {
     const overlay = document.getElementById('ui-overlay')!;
 
+    // Restore cursor visibility for menu interaction
+    document.body.style.cursor = 'auto';
+
     this.hideGameplayUI();
 
     const victoryDiv = document.createElement('div');
@@ -126,6 +129,9 @@ export class GameScreens {
 
   showGameOver(score: number, wave?: number, maxCombo?: number): void {
     const overlay = document.getElementById('ui-overlay')!;
+
+    // Restore cursor visibility for menu interaction
+    document.body.style.cursor = 'auto';
 
     this.hideGameplayUI();
 

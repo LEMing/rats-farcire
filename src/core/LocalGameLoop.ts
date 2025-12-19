@@ -14,10 +14,6 @@ import {
   PLAYER_START_AMMO,
   PLAYER_HITBOX_RADIUS,
   WALL_COLLISION_BUFFER,
-  SHOOT_COOLDOWN,
-  PROJECTILE_SPEED,
-  PROJECTILE_DAMAGE,
-  PROJECTILE_LIFETIME,
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
   TILE_SIZE,
@@ -31,13 +27,17 @@ import {
   DASH_IFRAMES,
   COMBO_TIMEOUT,
   COMBO_SCORE_MULTIPLIER,
-  SHOTGUN_PELLETS,
-  SHOTGUN_SPREAD,
   POWERUP_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
   CELL_CARRY_SPEED_MULTIPLIER,
   MINI_HORDE_SIZE,
+  // Weapon system
+  WEAPON_CONFIGS,
+  WEAPON_SLOT_ORDER,
+  THERMOBARIC_COOLDOWN,
+  THERMOBARIC_DAMAGE,
+  THERMOBARIC_RADIUS,
 } from '@shared/constants';
 import { WaveManager, SpawnRequest } from '../systems/WaveManager';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem';
@@ -149,6 +149,11 @@ export class LocalGameLoop {
       score: 0,
       isDead: false,
       lastShootTime: 0,
+      // Weapon system
+      currentWeapon: 'shotgun',
+      unlockedWeapons: ['pistol', 'shotgun'],
+      // Thermobaric charge
+      thermobaricCooldown: 0,
       // Dash ability
       dashCooldown: 0,
       isDashing: false,
@@ -167,8 +172,27 @@ export class LocalGameLoop {
     this.entities.setLocalPlayerId(playerId);
     this.entities.createPlayer(this.player);
 
+    // Spawn some initial weapon pickups nearby
+    this.spawnInitialWeapons();
+
     // Start wave system
     this.waveManager.start();
+  }
+
+  private spawnInitialWeapons(): void {
+    if (!this.player) return;
+
+    // Spawn 2 weapon pickups within 3-5 tiles of player
+    for (let i = 0; i < 2; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 3 + Math.random() * 2; // 3-5 tiles away
+      const spawnPos = {
+        x: this.player.position.x + Math.cos(angle) * dist * TILE_SIZE,
+        y: 0.5,
+        z: this.player.position.z + Math.sin(angle) * dist * TILE_SIZE,
+      };
+      this.spawnWeaponPickup(spawnPos);
+    }
   }
 
   update(input: InputState, dt: number): void {
@@ -227,6 +251,32 @@ export class LocalGameLoop {
       cellsDelivered: objectiveState.cellsDelivered,
       cellsRequired: objectiveState.cellsRequired,
       carryingCell: objectiveState.isCarryingCell,
+      // Weapon system
+      currentWeapon: this.player.currentWeapon,
+      unlockedWeapons: this.player.unlockedWeapons,
+      thermobaricCooldown: this.player.thermobaricCooldown,
+      // Minimap data
+      minimapData: {
+        playerPos: {
+          x: this.player.position.x / TILE_SIZE,
+          z: this.player.position.z / TILE_SIZE,
+        },
+        playerRotation: this.player.rotation,
+        enemies: Array.from(this.enemies.values())
+          .filter(e => e.state !== 'dead')
+          .map(e => ({
+            x: e.position.x / TILE_SIZE,
+            z: e.position.z / TILE_SIZE,
+            type: e.enemyType,
+          })),
+        cells: Array.from(this.objectiveSystem.getPowerCells().values()).map(c => ({
+          x: c.position.x / TILE_SIZE,
+          z: c.position.z / TILE_SIZE,
+          collected: c.collected,
+          delivered: c.delivered,
+        })),
+        tardisPos: this.mapData.tardisPosition,
+      },
     });
   }
 
@@ -315,17 +365,30 @@ export class LocalGameLoop {
     // Rotation (aim direction)
     this.player.rotation = Math.atan2(input.aimX, input.aimY);
 
-    // Shooting (not while dashing, auto-drops cell if carrying)
-    if (input.shooting && this.player.ammo > 0 && !this.player.isDashing) {
-      // Auto-drop cell when shooting
-      if (this.objectiveSystem.isCarryingCell()) {
-        this.objectiveSystem.forceDropCell(this.player.position);
-        this.player.carryingCellId = null;
-      }
+    // Weapon switching (1-5 keys)
+    if (input.weaponSlot !== null) {
+      this.switchWeapon(input.weaponSlot);
+    }
+
+    // Thermobaric charge (F key) - panic button
+    if (input.thermobaric && this.player.thermobaricCooldown <= 0) {
+      this.useThermobaricCharge();
+    }
+
+    // Update thermobaric cooldown
+    if (this.player.thermobaricCooldown > 0) {
+      this.player.thermobaricCooldown -= dt;
+    }
+
+    // Get current weapon config
+    const weaponConfig = WEAPON_CONFIGS[this.player.currentWeapon];
+
+    // Shooting (not while dashing)
+    if (input.shooting && this.player.ammo >= weaponConfig.energy && !this.player.isDashing) {
       const timeSinceLastShot = this.gameTime - this.player.lastShootTime;
       // Rapid fire power-up reduces cooldown
       const hasRapidFire = this.player.powerUps.rapidFire && this.player.powerUps.rapidFire > this.gameTime;
-      const cooldown = hasRapidFire ? SHOOT_COOLDOWN / POWERUP_CONFIGS.rapidFire.fireRateMultiplier : SHOOT_COOLDOWN;
+      const cooldown = hasRapidFire ? weaponConfig.cooldown / POWERUP_CONFIGS.rapidFire.fireRateMultiplier : weaponConfig.cooldown;
       if (timeSinceLastShot >= cooldown) {
         this.shoot();
         this.player.lastShootTime = this.gameTime;
@@ -337,30 +400,43 @@ export class LocalGameLoop {
   }
 
   private shoot(): void {
-    if (!this.player || this.player.ammo <= 0) return;
+    if (!this.player) return;
 
-    this.player.ammo--;
+    const weaponConfig = WEAPON_CONFIGS[this.player.currentWeapon];
+
+    // Check ammo (energy cost)
+    if (this.player.ammo < weaponConfig.energy) return;
+    this.player.ammo -= weaponConfig.energy;
 
     // Trigger muzzle flash
     this.entities.triggerMuzzleFlash(this.player.id);
 
-    // Screen shake for shotgun kick
-    this.renderer.addScreenShake(0.15);
-    this.eventBus.emit('screenShake', { intensity: 0.15 });
+    // Screen shake based on weapon power
+    const shakeIntensity = this.player.currentWeapon === 'rocket' ? 0.3 :
+                           this.player.currentWeapon === 'shotgun' ? 0.2 :
+                           this.player.currentWeapon === 'rifle' ? 0.15 : 0.08;
+    this.renderer.addScreenShake(shakeIntensity);
+    this.eventBus.emit('screenShake', { intensity: shakeIntensity });
 
     const baseAngle = this.player.rotation;
 
     // Spread shot power-up doubles pellets
     const hasSpreadShot = this.player.powerUps.spreadShot && this.player.powerUps.spreadShot > this.gameTime;
-    const pelletCount = hasSpreadShot ? SHOTGUN_PELLETS * POWERUP_CONFIGS.spreadShot.pelletMultiplier : SHOTGUN_PELLETS;
-    const spreadAngle = hasSpreadShot ? SHOTGUN_SPREAD * 1.5 : SHOTGUN_SPREAD; // Wider spread with more pellets
+    const pelletCount = hasSpreadShot ? weaponConfig.pellets * POWERUP_CONFIGS.spreadShot.pelletMultiplier : weaponConfig.pellets;
+    const spreadAngle = hasSpreadShot ? weaponConfig.spread * 1.5 : weaponConfig.spread;
 
-    // Fire multiple pellets with spread (shotgun)
+    // Fire projectiles
     for (let i = 0; i < pelletCount; i++) {
-      // Spread angle: distribute evenly across spread range with some randomness
-      const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
-      const randomOffset = (Math.random() - 0.5) * 0.08; // Small random variation
-      const angle = baseAngle + spreadOffset + randomOffset;
+      // Calculate spread for multi-pellet weapons
+      let angle = baseAngle;
+      if (pelletCount > 1) {
+        const spreadOffset = (i / (pelletCount - 1) - 0.5) * spreadAngle;
+        const randomOffset = (Math.random() - 0.5) * 0.08;
+        angle = baseAngle + spreadOffset + randomOffset;
+      } else if (weaponConfig.spread > 0) {
+        // Single pellet with spread (like machine gun)
+        angle = baseAngle + (Math.random() - 0.5) * weaponConfig.spread;
+      }
 
       const direction = {
         x: Math.sin(angle),
@@ -377,18 +453,87 @@ export class LocalGameLoop {
         },
         rotation: angle,
         velocity: {
-          x: direction.x * PROJECTILE_SPEED,
-          y: direction.y * PROJECTILE_SPEED,
+          x: direction.x * weaponConfig.speed,
+          y: direction.y * weaponConfig.speed,
         },
         ownerId: this.player.id,
-        damage: PROJECTILE_DAMAGE,
-        lifetime: PROJECTILE_LIFETIME,
+        damage: weaponConfig.damage,
+        lifetime: weaponConfig.lifetime,
         createdAt: this.gameTime,
+        weaponType: this.player.currentWeapon,
       };
 
       this.projectiles.set(projectile.id, projectile);
       this.entities.createProjectile(projectile);
     }
+  }
+
+  private switchWeapon(slot: number): void {
+    if (!this.player) return;
+
+    const weaponType = WEAPON_SLOT_ORDER[slot - 1];
+    if (!weaponType) return;
+
+    // Check if weapon is unlocked
+    if (this.player.unlockedWeapons.includes(weaponType)) {
+      if (this.player.currentWeapon !== weaponType) {
+        this.player.currentWeapon = weaponType;
+        // Show weapon switch notification
+        const config = WEAPON_CONFIGS[weaponType];
+        this.ui.showPowerUpNotification(config.name, config.color);
+      }
+    }
+  }
+
+  private useThermobaricCharge(): void {
+    if (!this.player) return;
+
+    // Set cooldown
+    this.player.thermobaricCooldown = THERMOBARIC_COOLDOWN;
+
+    // Visual effect - expanding fire ring
+    this.renderer.addScreenShake(0.5);
+
+    // Damage all enemies in radius
+    for (const [enemyId, enemy] of this.enemies) {
+      if (enemy.state === 'dead') continue;
+
+      const dist = distance(
+        { x: this.player.position.x, y: this.player.position.z },
+        { x: enemy.position.x, y: enemy.position.z }
+      );
+
+      if (dist <= THERMOBARIC_RADIUS) {
+        // Full damage at center, less at edges
+        const damageFalloff = 1 - (dist / THERMOBARIC_RADIUS) * 0.5;
+        const damage = Math.floor(THERMOBARIC_DAMAGE * damageFalloff);
+        enemy.health -= damage;
+
+        // Spawn damage number
+        const screenPos = this.renderer.worldToScreen(enemy.position);
+        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true);
+
+        // Strong knockback
+        const knockbackDir = normalize({
+          x: enemy.position.x - this.player.position.x,
+          y: enemy.position.z - this.player.position.z,
+        });
+        enemy.knockbackVelocity = {
+          x: knockbackDir.x * 10,
+          y: knockbackDir.y * 10,
+        };
+
+        // Check if killed
+        if (enemy.health <= 0) {
+          this.killEnemy(enemyId);
+        } else {
+          this.entities.damageEnemy(enemyId, enemy.health, ENEMY_CONFIGS[enemy.enemyType].health);
+        }
+      }
+    }
+
+    // Create fire ring particle effect
+    this.renderer.createThermobaricEffect(this.player.position, THERMOBARIC_RADIUS);
   }
 
   private updateProjectiles(dt: number): void {
@@ -578,10 +723,14 @@ export class LocalGameLoop {
       score: finalScore,
     });
 
-    // Spawn drops (power-up takes priority over regular pickup)
-    if (Math.random() < POWERUP_DROP_CHANCE) {
+    // Spawn drops (weapon > power-up > regular pickup)
+    const roll = Math.random();
+    if (roll < 0.30 && this.player && this.player.unlockedWeapons.length < WEAPON_SLOT_ORDER.length) {
+      // 30% chance for weapon if player doesn't have all weapons
+      this.spawnWeaponPickup(enemy.position);
+    } else if (roll < 0.30 + POWERUP_DROP_CHANCE) {
       this.spawnPowerUp(enemy.position);
-    } else if (Math.random() < PICKUP_SPAWN_CHANCE) {
+    } else if (roll < 0.30 + POWERUP_DROP_CHANCE + PICKUP_SPAWN_CHANCE) {
       this.spawnPickup(enemy.position);
     }
 
@@ -630,6 +779,35 @@ export class LocalGameLoop {
     this.entities.createPickup(pickup);
   }
 
+  private spawnWeaponPickup(position: Vec3): void {
+    if (!this.player) return;
+
+    // Get weapons the player doesn't have yet
+    const unownedWeapons = WEAPON_SLOT_ORDER.filter(
+      (w) => !this.player!.unlockedWeapons.includes(w)
+    );
+
+    // If player has all weapons, don't spawn
+    if (unownedWeapons.length === 0) return;
+
+    // Pick a random unowned weapon
+    const randomWeapon = unownedWeapons[Math.floor(Math.random() * unownedWeapons.length)];
+
+    const pickup: PickupState = {
+      id: generateId(),
+      type: 'pickup',
+      position: { ...position },
+      rotation: 0,
+      velocity: { x: 0, y: 0 },
+      pickupType: 'weapon',
+      value: 0,
+      weaponType: randomWeapon,
+    };
+
+    this.pickups.set(pickup.id, pickup);
+    this.entities.createPickup(pickup);
+  }
+
   private updatePickups(): void {
     if (!this.player) return;
 
@@ -660,6 +838,20 @@ export class LocalGameLoop {
           // Show power-up notification
           const config = POWERUP_CONFIGS[pickup.powerUpType];
           this.ui.showPowerUpNotification(config.name, config.color);
+        } else if (pickup.pickupType === 'weapon' && pickup.weaponType) {
+          // Unlock weapon if not already owned
+          if (!this.player.unlockedWeapons.includes(pickup.weaponType)) {
+            this.player.unlockedWeapons.push(pickup.weaponType);
+            // Auto-switch to new weapon
+            this.player.currentWeapon = pickup.weaponType;
+            // Show notification
+            const config = WEAPON_CONFIGS[pickup.weaponType];
+            this.ui.showPowerUpNotification(`NEW: ${config.name}`, config.color);
+          } else {
+            // Already have weapon, give ammo instead
+            this.player.ammo += 25;
+            this.ui.showPowerUpNotification('+25 ENERGY', 0xffff00);
+          }
         }
         toRemove.push(id);
       }
@@ -686,7 +878,7 @@ export class LocalGameLoop {
     });
 
     // Visual feedback
-    this.ui.showNotification('POWER CELL ACQUIRED!', 0x00ffff);
+    this.ui.showNotification('POWER CELL ACQUIRED!', 0xffaa00);
   }
 
   private handleCellDrop(cellId: string, position: Vec3): void {
@@ -710,7 +902,7 @@ export class LocalGameLoop {
     this.eventBus.emit('cellDelivered', { cellNumber, totalCells });
 
     // Visual feedback
-    this.ui.showNotification(`POWER INCREASING! (${cellNumber}/${totalCells})`, 0x00ffff);
+    this.ui.showNotification(`POWER INCREASING! (${cellNumber}/${totalCells})`, 0xffaa00);
 
     // Callback for UI
     if (this.onCellDelivered) {

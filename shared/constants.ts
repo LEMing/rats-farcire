@@ -2,6 +2,8 @@
 // Game Constants
 // ============================================================================
 
+import type { WeaponType } from './types';
+
 // Tick rate and timing
 export const TICK_RATE = 30; // Server updates per second (increased from 20)
 export const TICK_INTERVAL = 1000 / TICK_RATE;
@@ -19,23 +21,89 @@ export const CORRIDOR_WIDTH = 2;
 // Player
 export const PLAYER_SPEED = 8; // units per second
 export const PLAYER_MAX_HEALTH = 100;
-export const PLAYER_START_AMMO = 50; // more starting ammo
-export const PLAYER_MAX_AMMO = 150;
+export const PLAYER_START_AMMO = 150; // generous starting ammo
+export const PLAYER_MAX_AMMO = 300;
 export const PLAYER_HITBOX_RADIUS = 0.35;
 
 // Wall collision buffer - keeps entities visible (larger than hitbox for camera visibility)
 export const WALL_COLLISION_BUFFER = 0.7;
 
-// Shooting - shotgun style
-export const SHOOT_COOLDOWN = 200; // ms - fast responsive shooting
-export const PROJECTILE_SPEED = 25; // units per second
-export const PROJECTILE_DAMAGE = 15; // damage per pellet
-export const PROJECTILE_LIFETIME = 800; // ms (shorter range)
-export const PROJECTILE_HITBOX_RADIUS = 0.12;
+// Weapon System (WeaponType is defined in types.ts)
+export const WEAPON_CONFIGS = {
+  pistol: {
+    name: 'PISTOL',
+    damage: 20,
+    cooldown: 300,
+    energy: 1,
+    pellets: 1,
+    spread: 0,
+    speed: 30,
+    lifetime: 1000,
+    color: 0xffff88,
+  },
+  shotgun: {
+    name: 'SHOTGUN',
+    damage: 12,
+    cooldown: 400,
+    energy: 3,
+    pellets: 6,
+    spread: 0.25,
+    speed: 25,
+    lifetime: 800,
+    color: 0xff8844,
+  },
+  machinegun: {
+    name: 'MACHINE GUN',
+    damage: 8,
+    cooldown: 80,
+    energy: 1,
+    pellets: 1,
+    spread: 0.08,
+    speed: 35,
+    lifetime: 600,
+    color: 0x88ff88,
+  },
+  rifle: {
+    name: 'RIFLE',
+    damage: 50,
+    cooldown: 600,
+    energy: 5,
+    pellets: 1,
+    spread: 0,
+    speed: 45,
+    lifetime: 1200,
+    color: 0x8888ff,
+  },
+  rocket: {
+    name: 'ROCKET',
+    damage: 80,
+    cooldown: 1000,
+    energy: 10,
+    pellets: 1,
+    spread: 0,
+    speed: 15,
+    lifetime: 2000,
+    color: 0xff4444,
+    explosive: true,
+    blastRadius: 3,
+  },
+} as const;
 
-// Shotgun spread
-export const SHOTGUN_PELLETS = 6; // pellets per shot
-export const SHOTGUN_SPREAD = 0.25; // radians spread angle (~15 degrees total)
+export const WEAPON_SLOT_ORDER: WeaponType[] = ['pistol', 'shotgun', 'machinegun', 'rifle', 'rocket'];
+
+// Thermobaric charge (panic button)
+export const THERMOBARIC_COOLDOWN = 5000; // 5 seconds
+export const THERMOBARIC_DAMAGE = 100;
+export const THERMOBARIC_RADIUS = 5;
+
+// Legacy constants for compatibility
+export const SHOOT_COOLDOWN = 200;
+export const PROJECTILE_SPEED = 25;
+export const PROJECTILE_DAMAGE = 15;
+export const PROJECTILE_LIFETIME = 800;
+export const PROJECTILE_HITBOX_RADIUS = 0.12;
+export const SHOTGUN_PELLETS = 6;
+export const SHOTGUN_SPREAD = 0.25;
 
 // Enemies - faster base speeds
 export const ENEMY_CONFIGS = {
@@ -98,8 +166,8 @@ export function getWaveConfig(wave: number) {
 
 // Pickups
 export const HEALTH_PACK_VALUE = 45; // more health per pack
-export const AMMO_PACK_VALUE = 20;
-export const PICKUP_SPAWN_CHANCE = 0.4; // 40% chance on enemy death
+export const AMMO_PACK_VALUE = 50; // generous ammo packs
+export const PICKUP_SPAWN_CHANCE = 0.5; // 50% chance on enemy death
 
 // Power Cell Objective System
 export const POWER_CELLS_REQUIRED = 3;

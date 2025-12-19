@@ -142,6 +142,31 @@ export class ParticleSystem {
   }
 
   /**
+   * Spawn a fire particle for thermobaric effect
+   */
+  spawnFireParticle(position: Vec3): void {
+    if (this.freeParticleIndices.length === 0) return;
+    const index = this.freeParticleIndices.pop()!;
+
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 2;
+
+    this.particles.push({
+      index,
+      position: new THREE.Vector3(position.x, position.y, position.z),
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * speed,
+        3 + Math.random() * 3, // Upward
+        Math.sin(angle) * speed
+      ),
+      lifetime: 0,
+      maxLifetime: 0.5 + Math.random() * 0.3,
+      color: new THREE.Color(0xff6600), // Fire orange
+      baseScale: 1.0 + Math.random() * 0.5,
+    });
+  }
+
+  /**
    * Spawn a blood decal on the ground (using instanced mesh - no allocation)
    */
   spawnBloodDecal(x: number, z: number, size: number = 1): void {
