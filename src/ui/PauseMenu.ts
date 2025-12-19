@@ -149,6 +149,22 @@ export class PauseMenu {
             </label>
           </div>
 
+          <!-- Aim Assist -->
+          <div class="setting-group" style="margin-bottom: 20px;">
+            <label style="
+              display: flex;
+              align-items: center;
+              color: #ccc;
+              font-size: 13px;
+              cursor: pointer;
+            ">
+              <input type="checkbox" id="aim-assist" checked
+                style="margin-right: 8px; accent-color: #aa22ff; width: 16px; height: 16px;">
+              <span style="color: #fff;">Aim Assist</span>
+              <span style="color: #888; margin-left: 8px;">(slight pull toward enemies)</span>
+            </label>
+          </div>
+
           <!-- Volume Sliders -->
           <div class="volume-controls" style="display: flex; flex-direction: column; gap: 12px;">
             <div class="volume-control">
@@ -253,6 +269,12 @@ export class PauseMenu {
       });
     });
 
+    // Aim assist checkbox
+    const aimAssistCheckbox = this.container.querySelector('#aim-assist') as HTMLInputElement;
+    aimAssistCheckbox.addEventListener('change', (e) => {
+      this.settings.setAimAssist((e.target as HTMLInputElement).checked);
+    });
+
     // Volume sliders
     const masterSlider = this.container.querySelector('#master-volume') as HTMLInputElement;
     const sfxSlider = this.container.querySelector('#sfx-volume') as HTMLInputElement;
@@ -303,6 +325,12 @@ export class PauseMenu {
     radioButtons.forEach((radio) => {
       radio.checked = radio.value === settings.controlScheme;
     });
+
+    // Update aim assist checkbox
+    const aimAssistCheckbox = this.container.querySelector('#aim-assist') as HTMLInputElement;
+    if (aimAssistCheckbox) {
+      aimAssistCheckbox.checked = settings.aimAssist;
+    }
 
     // Update volume sliders
     const masterSlider = this.container.querySelector('#master-volume') as HTMLInputElement;

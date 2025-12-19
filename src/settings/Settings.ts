@@ -9,6 +9,7 @@ export interface GameSettings {
   masterVolume: number;
   sfxVolume: number;
   musicVolume: number;
+  aimAssist: boolean;
 }
 
 const DEFAULT_SETTINGS: GameSettings = {
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 1.0,
   sfxVolume: 1.0,
   musicVolume: 0.25,
+  aimAssist: true,
 };
 
 export class Settings {
@@ -56,6 +58,10 @@ export class Settings {
     return this._settings.musicVolume;
   }
 
+  get aimAssist(): boolean {
+    return this._settings.aimAssist;
+  }
+
   setControlScheme(scheme: ControlScheme): void {
     this._settings.controlScheme = scheme;
     this.save();
@@ -76,6 +82,12 @@ export class Settings {
 
   setMusicVolume(volume: number): void {
     this._settings.musicVolume = Math.max(0, Math.min(1, volume));
+    this.save();
+    this.notifyListeners();
+  }
+
+  setAimAssist(enabled: boolean): void {
+    this._settings.aimAssist = enabled;
     this.save();
     this.notifyListeners();
   }

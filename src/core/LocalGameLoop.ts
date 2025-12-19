@@ -58,11 +58,17 @@ import { EnemyAI } from '../ai/EnemyAI';
 import { Renderer } from '../rendering/Renderer';
 import { EventBus, getEventBus } from './EventBus';
 import { getAudioManager } from '../audio/AudioManager';
+import { Settings } from '../settings/Settings';
 import { debug } from '../utils/debug';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
 // ============================================================================
+
+// Aim assist configuration
+const AIM_ASSIST_RANGE = 15; // Max distance to assist (world units)
+const AIM_ASSIST_CONE = Math.PI / 6; // 30 degrees cone (±15° from aim)
+const AIM_ASSIST_STRENGTH = 0.15; // How much to pull toward enemy (0-1)
 
 export class LocalGameLoop {
   private mapData: MapData;
@@ -71,6 +77,7 @@ export class LocalGameLoop {
   private ai: EnemyAI;
   private renderer: Renderer;
   private eventBus: EventBus;
+  private settings: Settings;
 
   private player: PlayerState | null = null;
   private enemies: Map<string, EnemyState> = new Map();
@@ -112,6 +119,7 @@ export class LocalGameLoop {
     this.renderer = renderer;
     this.ai = new EnemyAI(mapData);
     this.eventBus = getEventBus();
+    this.settings = Settings.getInstance();
 
     // Initialize wave manager with callbacks
     this.waveManager = new WaveManager(mapData, {
@@ -369,8 +377,17 @@ export class LocalGameLoop {
     this.player.position.z = newZ;
     this.player.velocity = { x: newVelX, y: newVelZ };
 
-    // Rotation (aim direction)
-    this.player.rotation = Math.atan2(input.aimX, input.aimY);
+    // Rotation (aim direction) with optional aim assist
+    let aimX = input.aimX;
+    let aimY = input.aimY;
+
+    if (this.settings.aimAssist) {
+      const adjusted = this.applyAimAssist(aimX, aimY);
+      aimX = adjusted.x;
+      aimY = adjusted.y;
+    }
+
+    this.player.rotation = Math.atan2(aimX, aimY);
 
     // Weapon switching (1-5 keys)
     if (input.weaponSlot !== null) {
@@ -1264,5 +1281,70 @@ export class LocalGameLoop {
 
     // Update wall opacity in renderer (dt in seconds)
     this.renderer.updateWallOcclusion(entityPositions, dt / 1000);
+  }
+
+  /**
+   * Apply aim assist - subtly pull aim toward nearby enemies within a cone.
+   * Returns adjusted aim direction (normalized).
+   */
+  private applyAimAssist(aimX: number, aimY: number): { x: number; y: number } {
+    if (!this.player) return { x: aimX, y: aimY };
+
+    const playerPos = { x: this.player.position.x, y: this.player.position.z };
+    const aimAngle = Math.atan2(aimX, aimY);
+
+    let bestTarget: { x: number; y: number } | null = null;
+    let bestScore = Infinity; // Lower is better (closer to aim + closer distance)
+
+    for (const enemy of this.enemies.values()) {
+      if (enemy.state === 'dead') continue;
+
+      const enemyPos = { x: enemy.position.x, y: enemy.position.z };
+      const dist = distance(playerPos, enemyPos);
+
+      // Skip if too far
+      if (dist > AIM_ASSIST_RANGE) continue;
+
+      // Direction to enemy
+      const toEnemyX = enemyPos.x - playerPos.x;
+      const toEnemyY = enemyPos.y - playerPos.y;
+      const toEnemyLen = Math.sqrt(toEnemyX * toEnemyX + toEnemyY * toEnemyY);
+      if (toEnemyLen === 0) continue;
+
+      const toEnemyNormX = toEnemyX / toEnemyLen;
+      const toEnemyNormY = toEnemyY / toEnemyLen;
+      const enemyAngle = Math.atan2(toEnemyNormX, toEnemyNormY);
+
+      // Angle difference (wrapped to -PI to PI)
+      let angleDiff = enemyAngle - aimAngle;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+      // Skip if outside cone
+      if (Math.abs(angleDiff) > AIM_ASSIST_CONE) continue;
+
+      // Score: prioritize enemies closer to aim direction, then by distance
+      const angleScore = Math.abs(angleDiff) / AIM_ASSIST_CONE; // 0-1
+      const distScore = dist / AIM_ASSIST_RANGE; // 0-1
+      const score = angleScore * 0.7 + distScore * 0.3;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestTarget = { x: toEnemyNormX, y: toEnemyNormY };
+      }
+    }
+
+    // If no valid target, return original aim
+    if (!bestTarget) return { x: aimX, y: aimY };
+
+    // Smoothly blend toward target
+    const newAimX = aimX + (bestTarget.x - aimX) * AIM_ASSIST_STRENGTH;
+    const newAimY = aimY + (bestTarget.y - aimY) * AIM_ASSIST_STRENGTH;
+
+    // Normalize
+    const len = Math.sqrt(newAimX * newAimX + newAimY * newAimY);
+    if (len === 0) return { x: aimX, y: aimY };
+
+    return { x: newAimX / len, y: newAimY / len };
   }
 }
