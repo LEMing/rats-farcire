@@ -61,6 +61,7 @@ import { getAudioManager } from '../audio/AudioManager';
 import { Settings } from '../settings/Settings';
 import { debug } from '../utils/debug';
 import { applyAimAssist, DEFAULT_AIM_ASSIST_CONFIG } from '../systems/AimAssist';
+import { calculateKnockback, processKnockback } from '../systems/KnockbackUtils';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -537,14 +538,12 @@ export class LocalGameLoop {
         this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true);
 
         // Strong knockback
-        const knockbackDir = normalize({
-          x: enemy.position.x - this.player.position.x,
-          y: enemy.position.z - this.player.position.z,
-        });
-        enemy.knockbackVelocity = {
-          x: knockbackDir.x * 10,
-          y: knockbackDir.y * 10,
-        };
+        const knockbackVel = calculateKnockback(
+          { x: this.player.position.x, y: this.player.position.z },
+          { x: enemy.position.x, y: enemy.position.z },
+          10
+        );
+        enemy.knockbackVelocity = knockbackVel;
 
         // Check if killed
         if (enemy.health <= 0) {
@@ -659,15 +658,12 @@ export class LocalGameLoop {
           this.entities.damageEnemy(enemyId, enemy.health, config.health);
 
           // Apply knockback
-          const knockbackDir = normalize({
-            x: enemy.position.x - proj.position.x,
-            y: enemy.position.z - proj.position.z,
-          });
-          const knockbackForce = 4;
-          enemy.knockbackVelocity = {
-            x: knockbackDir.x * knockbackForce,
-            y: knockbackDir.y * knockbackForce,
-          };
+          const knockbackVel = calculateKnockback(
+            { x: proj.position.x, y: proj.position.z },
+            { x: enemy.position.x, y: enemy.position.z },
+            4
+          );
+          enemy.knockbackVelocity = knockbackVel;
 
           // Spawn damage number
           const screenPos = this.renderer.worldToScreen(enemy.position);
@@ -751,14 +747,12 @@ export class LocalGameLoop {
           enemy.health -= damage;
 
           // Knockback from explosion
-          const knockbackDir = normalize({
-            x: enemy.position.x - explosionPos.x,
-            y: enemy.position.z - explosionPos.z,
-          });
-          enemy.knockbackVelocity = {
-            x: knockbackDir.x * 6,
-            y: knockbackDir.y * 6,
-          };
+          const explosionKnockback = calculateKnockback(
+            { x: explosionPos.x, y: explosionPos.z },
+            { x: enemy.position.x, y: enemy.position.z },
+            6
+          );
+          enemy.knockbackVelocity = explosionKnockback;
 
           // Damage number
           const screenPos = this.renderer.worldToScreen(enemy.position);
@@ -1089,31 +1083,20 @@ export class LocalGameLoop {
 
       const config = ENEMY_CONFIGS[enemy.enemyType];
 
-      // Apply knockback
+      // Apply knockback using extracted utility
       if (enemy.knockbackVelocity && (enemy.knockbackVelocity.x !== 0 || enemy.knockbackVelocity.y !== 0)) {
-        let kbX = enemy.position.x + enemy.knockbackVelocity.x * dtSeconds;
-        let kbZ = enemy.position.z + enemy.knockbackVelocity.y * dtSeconds;
+        const wallChecker = (x: number, z: number) =>
+          isWalkableWithRadius(this.mapData, x, z, WALL_COLLISION_BUFFER);
 
-        // Wall collision for knockback (use buffer for visibility)
-        if (!isWalkableWithRadius(this.mapData, kbX, enemy.position.z, WALL_COLLISION_BUFFER)) {
-          kbX = enemy.position.x;
-          enemy.knockbackVelocity.x = 0;
-        }
-        if (!isWalkableWithRadius(this.mapData, enemy.position.x, kbZ, WALL_COLLISION_BUFFER)) {
-          kbZ = enemy.position.z;
-          enemy.knockbackVelocity.y = 0;
-        }
+        const kbResult = processKnockback(
+          { position: { x: enemy.position.x, y: enemy.position.z }, velocity: enemy.knockbackVelocity },
+          dtSeconds,
+          wallChecker
+        );
 
-        enemy.position.x = kbX;
-        enemy.position.z = kbZ;
-
-        // Decay knockback
-        enemy.knockbackVelocity.x *= 0.85;
-        enemy.knockbackVelocity.y *= 0.85;
-
-        // Zero out small values
-        if (Math.abs(enemy.knockbackVelocity.x) < 0.1) enemy.knockbackVelocity.x = 0;
-        if (Math.abs(enemy.knockbackVelocity.y) < 0.1) enemy.knockbackVelocity.y = 0;
+        enemy.position.x = kbResult.position.x;
+        enemy.position.z = kbResult.position.y;
+        enemy.knockbackVelocity = kbResult.velocity;
       }
 
       // Get AI movement direction
