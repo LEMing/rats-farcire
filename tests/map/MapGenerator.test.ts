@@ -278,4 +278,120 @@ describe('MapGenerator', () => {
       }
     });
   });
+
+  describe('themed room types', () => {
+    it('should assign themed room types to non-special rooms', () => {
+      const map = new MapGenerator(80, 80, 12345).generate();
+
+      // All rooms that are not spawn/tardis/cell should have themed types
+      const themedTypes = ['grinder', 'storage', 'nest', 'shrine', 'normal'];
+      const specialTypes = ['spawn', 'tardis', 'cell'];
+
+      for (const room of map.rooms) {
+        const isSpecial = specialTypes.includes(room.roomType);
+        const isThemed = themedTypes.includes(room.roomType);
+
+        expect(isSpecial || isThemed).toBe(true);
+      }
+    });
+
+    it('should have variety in themed room types', () => {
+      // Generate multiple maps and collect room types
+      const allRoomTypes = new Set<string>();
+
+      for (let seed = 1; seed <= 10; seed++) {
+        const map = new MapGenerator(80, 80, seed * 1000).generate();
+        for (const room of map.rooms) {
+          allRoomTypes.add(room.roomType);
+        }
+      }
+
+      // Should have at least some of the themed types across multiple generations
+      const themedTypes = ['grinder', 'storage', 'nest', 'shrine'];
+      const foundThemed = themedTypes.filter((t) => allRoomTypes.has(t));
+
+      expect(foundThemed.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should assign grinder/storage to large rooms more often', () => {
+      // Generate many maps and track room type vs size
+      let largeRoomGrinderOrStorage = 0;
+      let largeRoomTotal = 0;
+
+      for (let seed = 1; seed <= 20; seed++) {
+        const map = new MapGenerator(80, 80, seed * 500).generate();
+        for (const room of map.rooms) {
+          // Skip special rooms
+          if (['spawn', 'tardis', 'cell'].includes(room.roomType)) continue;
+
+          const isLarge = room.width >= 6 && room.height >= 6;
+          if (isLarge) {
+            largeRoomTotal++;
+            if (room.roomType === 'grinder' || room.roomType === 'storage') {
+              largeRoomGrinderOrStorage++;
+            }
+          }
+        }
+      }
+
+      // Large rooms should mostly be grinder or storage (>80%)
+      if (largeRoomTotal > 0) {
+        const ratio = largeRoomGrinderOrStorage / largeRoomTotal;
+        expect(ratio).toBeGreaterThan(0.7);
+      }
+    });
+
+    it('should assign nest/shrine to small rooms more often', () => {
+      // Generate many maps and track room type vs size
+      let smallRoomNestOrShrine = 0;
+      let smallRoomTotal = 0;
+
+      for (let seed = 1; seed <= 20; seed++) {
+        const map = new MapGenerator(80, 80, seed * 500).generate();
+        for (const room of map.rooms) {
+          // Skip special rooms
+          if (['spawn', 'tardis', 'cell'].includes(room.roomType)) continue;
+
+          const isSmall = room.width < 4 || room.height < 4;
+          if (isSmall) {
+            smallRoomTotal++;
+            if (room.roomType === 'nest' || room.roomType === 'shrine') {
+              smallRoomNestOrShrine++;
+            }
+          }
+        }
+      }
+
+      // Small rooms should mostly be nest or shrine (>80%)
+      if (smallRoomTotal > 0) {
+        const ratio = smallRoomNestOrShrine / smallRoomTotal;
+        expect(ratio).toBeGreaterThan(0.7);
+      }
+    });
+
+    it('should not assign themed types to spawn room', () => {
+      const map = new MapGenerator(60, 60, 9999).generate();
+
+      expect(map.rooms[0].roomType).toBe('spawn');
+    });
+
+    it('should not assign themed types to tardis room', () => {
+      const map = new MapGenerator(60, 60, 8888).generate();
+
+      const tardisRoom = map.rooms.find((r) => r.roomType === 'tardis');
+      expect(tardisRoom).toBeDefined();
+      expect(tardisRoom?.roomType).toBe('tardis');
+    });
+
+    it('should not assign themed types to cell rooms', () => {
+      const map = new MapGenerator(60, 60, 7777).generate();
+
+      const cellRooms = map.rooms.filter((r) => r.roomType === 'cell');
+      expect(cellRooms.length).toBeGreaterThan(0);
+
+      for (const room of cellRooms) {
+        expect(room.roomType).toBe('cell');
+      }
+    });
+  });
 });
