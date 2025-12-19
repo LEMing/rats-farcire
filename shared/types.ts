@@ -104,6 +104,13 @@ export interface PickupState extends Entity {
   weaponType?: WeaponType;
 }
 
+export interface BarrelState {
+  id: string;
+  position: Vec3;
+  health: number;
+  isExploding: boolean;
+}
+
 // ============================================================================
 // Map Types
 // ============================================================================

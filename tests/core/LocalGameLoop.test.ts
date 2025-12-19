@@ -75,6 +75,13 @@ const createMockUIManager = () => ({
   initMinimap: vi.fn(),
 });
 
+const createMockMapRenderer = () => ({
+  spawnExplosiveBarrel: vi.fn(),
+  removeExplosiveBarrel: vi.fn(),
+  clearExplosiveBarrels: vi.fn(),
+  getExplosiveBarrelCount: vi.fn().mockReturnValue(0),
+});
+
 const createMockRenderer = () => ({
   addScreenShake: vi.fn(),
   worldToScreen: vi.fn().mockReturnValue({ x: 0, y: 0 }),
@@ -86,6 +93,7 @@ const createMockRenderer = () => ({
   addPowerCellAt: vi.fn(),
   setTardisPowerLevel: vi.fn(),
   updateWallOcclusion: vi.fn(),
+  getMapRenderer: vi.fn().mockReturnValue(createMockMapRenderer()),
 });
 
 const createDefaultInput = (): InputState => ({

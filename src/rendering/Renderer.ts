@@ -395,6 +395,10 @@ export class Renderer {
     return this.mapRenderer.getPowerCellIds();
   }
 
+  getMapRenderer(): MapRenderer {
+    return this.mapRenderer;
+  }
+
   updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {
     // Update screen shake
     this.updateShake();

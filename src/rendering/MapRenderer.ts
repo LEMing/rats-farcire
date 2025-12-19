@@ -42,6 +42,9 @@ export class MapRenderer {
   private powerCells: Map<string, THREE.Group> = new Map();
   private powerCellIds: string[] = [];
 
+  // Explosive barrels
+  private explosiveBarrels: Map<string, THREE.Group> = new Map();
+
   // Time tracking for animations
   private time = 0;
 
@@ -616,6 +619,38 @@ export class MapRenderer {
 
   getPowerCellIds(): string[] {
     return [...this.powerCellIds];
+  }
+
+  // ============================================================================
+  // Explosive Barrel System
+  // ============================================================================
+
+  spawnExplosiveBarrel(barrelId: string, x: number, z: number): void {
+    // Don't spawn if already exists
+    if (this.explosiveBarrels.has(barrelId)) return;
+
+    const barrelGroup = MapDecorations.createExplosiveBarrel(x, z, barrelId);
+    this.deps.scene.add(barrelGroup);
+    this.explosiveBarrels.set(barrelId, barrelGroup);
+  }
+
+  removeExplosiveBarrel(barrelId: string): void {
+    const barrelGroup = this.explosiveBarrels.get(barrelId);
+    if (barrelGroup) {
+      this.deps.scene.remove(barrelGroup);
+      this.explosiveBarrels.delete(barrelId);
+    }
+  }
+
+  getExplosiveBarrelCount(): number {
+    return this.explosiveBarrels.size;
+  }
+
+  clearExplosiveBarrels(): void {
+    for (const [, barrelGroup] of this.explosiveBarrels) {
+      this.deps.scene.remove(barrelGroup);
+    }
+    this.explosiveBarrels.clear();
   }
 
   // ============================================================================

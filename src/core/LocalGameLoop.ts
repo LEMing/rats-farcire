@@ -44,6 +44,7 @@ import { EnemyManager } from '../systems/EnemyManager';
 import { ProjectileManager } from '../systems/ProjectileManager';
 import { PickupManager } from '../systems/PickupManager';
 import { LastStandSystem } from '../systems/LastStandSystem';
+import { BarrelManager, ExplosionResult } from '../systems/BarrelManager';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -75,6 +76,7 @@ export class LocalGameLoop {
   private projectileManager!: ProjectileManager;
   private pickupManager!: PickupManager;
   private lastStandSystem!: LastStandSystem;
+  private barrelManager!: BarrelManager;
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
@@ -179,6 +181,16 @@ export class LocalGameLoop {
         this.ui.showLastStand(false);
       },
     });
+
+    // Initialize barrel manager
+    this.barrelManager = new BarrelManager({}, {
+      onBarrelExplode: (result) => {
+        // Visual effect via renderer
+        this.renderer.createThermobaricEffect(result.position, result.radius);
+        this.renderer.addScreenShake(0.4);
+        getAudioManager()?.playThermobaric(result.position);
+      },
+    });
   }
 
   spawnLocalPlayer(position: Vec2): void {
@@ -222,6 +234,9 @@ export class LocalGameLoop {
     // Reset Last Stand for new life
     this.lastStandSystem.reset();
 
+    // Spawn explosive barrels in rooms
+    this.spawnExplosiveBarrels();
+
     // Spawn some initial weapon pickups nearby
     this.spawnInitialWeapons();
 
@@ -245,6 +260,37 @@ export class LocalGameLoop {
         z: this.player.position.z + Math.sin(angle) * dist * TILE_SIZE,
       };
       this.spawnWeaponPickup(spawnPos);
+    }
+  }
+
+  private spawnExplosiveBarrels(): void {
+    // Clear existing barrels
+    this.barrelManager.clear();
+    this.renderer.getMapRenderer().clearExplosiveBarrels();
+
+    // Spawn barrels in rooms (except spawn room at index 0)
+    for (let i = 1; i < this.mapData.rooms.length; i++) {
+      const room = this.mapData.rooms[i];
+      // Skip small rooms
+      if (room.width < 4 || room.height < 4) continue;
+
+      // 40% chance per room
+      if (Math.random() > 0.4) continue;
+
+      // Spawn 1-3 barrels per room
+      const barrelCount = 1 + Math.floor(Math.random() * 3);
+
+      for (let j = 0; j < barrelCount; j++) {
+        // Random position within room (with padding from walls)
+        const x = room.x + 1 + Math.random() * (room.width - 2);
+        const z = room.y + 1 + Math.random() * (room.height - 2);
+        const worldX = x * TILE_SIZE;
+        const worldZ = z * TILE_SIZE;
+
+        // Spawn barrel in manager and render
+        const barrel = this.barrelManager.spawnBarrel({ x: worldX, y: 0.5, z: worldZ });
+        this.renderer.getMapRenderer().spawnExplosiveBarrel(barrel.id, worldX, worldZ);
+      }
     }
   }
 
@@ -466,6 +512,90 @@ export class LocalGameLoop {
     this.renderer.createThermobaricEffect(position, radius);
   }
 
+  /**
+   * Apply barrel explosion effects - damage enemies and player in radius
+   */
+  private applyBarrelExplosion(explosion: ExplosionResult): void {
+    if (!this.player) return;
+
+    const { position, radius, damage, knockbackForce } = explosion;
+    const playerDamage = this.barrelManager.getPlayerDamage();
+
+    // Damage all enemies in radius
+    for (const [enemyId, enemy] of this.enemies) {
+      if (enemy.state === 'dead') continue;
+
+      const dist = distance(
+        { x: position.x, y: position.z },
+        { x: enemy.position.x, y: enemy.position.z }
+      );
+
+      if (dist <= radius) {
+        // Full damage at center, less at edges
+        const damageFalloff = 1 - (dist / radius) * 0.5;
+        const finalDamage = Math.floor(damage * damageFalloff);
+        enemy.health -= finalDamage;
+
+        // Spawn damage number
+        const screenPos = this.renderer.worldToScreen(enemy.position);
+        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, finalDamage, true);
+
+        // Strong knockback
+        const knockbackVel = calculateKnockback(
+          { x: position.x, y: position.z },
+          { x: enemy.position.x, y: enemy.position.z },
+          knockbackForce
+        );
+        enemy.knockbackVelocity = knockbackVel;
+
+        // Check if killed
+        if (enemy.health <= 0) {
+          this.killEnemy(enemyId);
+        } else {
+          this.entities.damageEnemy(enemyId, enemy.health, ENEMY_CONFIGS[enemy.enemyType].health);
+        }
+      }
+    }
+
+    // Damage player if in radius (and not dashing with i-frames)
+    if (!(this.player.isDashing && DASH_IFRAMES)) {
+      const playerDist = distance(
+        { x: position.x, y: position.z },
+        { x: this.player.position.x, y: this.player.position.z }
+      );
+
+      if (playerDist <= radius) {
+        const damageFalloff = 1 - (playerDist / radius) * 0.5;
+        const finalDamage = Math.floor(playerDamage * damageFalloff);
+
+        this.player.health -= finalDamage;
+
+        // Screen shake and damage flash
+        this.renderer.addScreenShake(0.3);
+        this.eventBus.emit('playerHit', {
+          position: { ...this.player.position },
+          damage: finalDamage,
+          health: this.player.health,
+        });
+
+        // Spawn damage number on player
+        const screenPos = this.renderer.worldToScreen(this.player.position);
+        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, finalDamage, false);
+
+        // Check if player died
+        if (this.player.health <= 0) {
+          // Try Last Stand first
+          if (!this.lastStandSystem.wasUsed()) {
+            this.lastStandSystem.tryTrigger(this.gameTime);
+            this.player.health = 1; // Keep alive during Last Stand
+          } else {
+            this.handlePlayerDeath();
+          }
+        }
+      }
+    }
+  }
+
   private updateProjectiles(dt: number): void {
     // Update physics (movement, homing, lifetime, wall collision) via ProjectileManager
     const physicsResult = this.projectileManager.updatePhysics(
@@ -480,6 +610,38 @@ export class LocalGameLoop {
     toRemove.push(...physicsResult.toRemove);
 
     const rocketExplosions = [...physicsResult.rocketExplosions];
+    const barrelExplosions: ExplosionResult[] = [];
+
+    // Check barrel collision for projectiles first
+    for (const [id, proj] of this.projectiles) {
+      if (physicsResult.toRemove.includes(id)) continue;
+
+      const hitBarrel = this.barrelManager.checkProjectileCollision(proj);
+      if (hitBarrel) {
+        const explosion = this.barrelManager.explodeBarrel(hitBarrel.id, this.gameTime);
+        if (explosion) {
+          barrelExplosions.push(explosion);
+          this.renderer.getMapRenderer().removeExplosiveBarrel(hitBarrel.id);
+        }
+        toRemove.push(id);
+      }
+    }
+
+    // Process barrel chain reactions
+    const chainExplosions = this.barrelManager.update(this.gameTime);
+    for (const explosion of chainExplosions) {
+      barrelExplosions.push(explosion);
+      // Find the barrel ID from chain triggered list (the barrel that just exploded is removed already)
+      // The chain explosion callback already handled the visual, just need to remove render
+      for (const triggeredId of explosion.chainTriggeredBarrelIds) {
+        this.renderer.getMapRenderer().removeExplosiveBarrel(triggeredId);
+      }
+    }
+
+    // Apply barrel explosions
+    for (const explosion of barrelExplosions) {
+      this.applyBarrelExplosion(explosion);
+    }
 
     // Check enemy collision for remaining projectiles
     for (const [id, proj] of this.projectiles) {

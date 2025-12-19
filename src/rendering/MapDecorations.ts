@@ -13,6 +13,9 @@ const WOOD_COLOR = 0x5c4033;
 const WOOD_DARK = 0x3d2b22;
 const BONE_COLOR = 0xd4c5a9;
 const BONE_DARK = 0xa89880;
+const EXPLOSIVE_RED = 0xaa2222;
+const EXPLOSIVE_DARK = 0x661111;
+const WARNING_YELLOW = 0xffcc00;
 
 export class MapDecorations {
   private static geometryCache: Map<string, THREE.BufferGeometry> = new Map();
@@ -57,6 +60,9 @@ export class MapDecorations {
     this.materialCache.set('bone', new THREE.MeshLambertMaterial({ color: BONE_COLOR }));
     this.materialCache.set('boneDark', new THREE.MeshLambertMaterial({ color: BONE_DARK }));
     this.materialCache.set('hole', new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    this.materialCache.set('explosiveRed', new THREE.MeshLambertMaterial({ color: EXPLOSIVE_RED }));
+    this.materialCache.set('explosiveDark', new THREE.MeshLambertMaterial({ color: EXPLOSIVE_DARK }));
+    this.materialCache.set('warningYellow', new THREE.MeshLambertMaterial({ color: WARNING_YELLOW }));
   }
 
   // ============================================================================
@@ -272,6 +278,72 @@ export class MapDecorations {
     }
 
     group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // Explosive Barrel - Shootable hazard
+  // ============================================================================
+  static createExplosiveBarrel(x: number, z: number, barrelId: string): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0.45, z);
+
+    // Main body (red)
+    const body = new THREE.Mesh(
+      this.geometryCache.get('barrel')!,
+      this.materialCache.get('explosiveRed')!
+    );
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
+
+    // Metal rings (darker)
+    const ringMat = this.materialCache.get('explosiveDark')!;
+    for (const y of [-0.35, 0, 0.35]) {
+      const ring = new THREE.Mesh(this.geometryCache.get('barrelRing')!, ringMat);
+      ring.position.y = y;
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+    }
+
+    // Warning symbol (simple triangle)
+    const warningGeom = new THREE.BufferGeometry();
+    const triangleSize = 0.2;
+    const positions = new Float32Array([
+      0, triangleSize, 0,
+      -triangleSize * 0.866, -triangleSize * 0.5, 0,
+      triangleSize * 0.866, -triangleSize * 0.5, 0
+    ]);
+    warningGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    warningGeom.computeVertexNormals();
+
+    // Warning on front
+    const warningFront = new THREE.Mesh(
+      warningGeom,
+      this.materialCache.get('warningYellow')!
+    );
+    warningFront.position.set(0, 0, 0.36);
+    group.add(warningFront);
+
+    // Warning on back
+    const warningBack = new THREE.Mesh(
+      warningGeom,
+      this.materialCache.get('warningYellow')!
+    );
+    warningBack.position.set(0, 0, -0.36);
+    warningBack.rotation.y = Math.PI;
+    group.add(warningBack);
+
+    // Glow effect (subtle point light)
+    const glow = new THREE.PointLight(0xff4400, 0.3, 3);
+    glow.position.y = 0.5;
+    group.add(glow);
+
+    group.userData.mapObject = true;
+    group.userData.isExplosiveBarrel = true;
+    group.userData.barrelId = barrelId;
+
     return group;
   }
 
