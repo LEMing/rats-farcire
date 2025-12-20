@@ -572,8 +572,10 @@ export class LocalGameLoop {
 
         this.player.health -= finalDamage;
 
-        // Screen shake and damage flash
+        // Screen shake, chromatic aberration, and damage flash
         this.renderer.addScreenShake(0.3);
+        this.renderer.triggerDamageEffect(0.8);
+        this.ui.triggerDamageVignette(0.4);
         this.eventBus.emit('playerHit', {
           position: { ...this.player.position },
           damage: finalDamage,
@@ -767,7 +769,7 @@ export class LocalGameLoop {
     }
 
     if (enemy.health <= 0) {
-      this.killEnemy(enemyId);
+      this.killEnemy(enemyId, proj.weaponType);
     }
   }
 
@@ -790,6 +792,9 @@ export class LocalGameLoop {
 
     // Trigger damage vignette
     this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+
+    // Chromatic aberration spike on damage
+    this.renderer.triggerDamageEffect(hasShield ? 0.4 : 0.8);
 
     // Screen shake
     this.renderer.addScreenShake(0.3);
@@ -860,7 +865,7 @@ export class LocalGameLoop {
     }
   }
 
-  private killEnemy(enemyId: string): void {
+  private killEnemy(enemyId: string, weaponType?: import('@shared/types').WeaponType): void {
     const enemy = this.enemies.get(enemyId);
     if (!enemy || !this.player) return;
 
@@ -905,32 +910,13 @@ export class LocalGameLoop {
     const screenPos = this.renderer.worldToScreen(enemy.position);
     this.ui.spawnScorePopup(screenPos.x, screenPos.y, finalScore, this.player.comboCount);
 
-    // Blood burst particles (more on death than on hit)
-    const particleCount = enemy.enemyType === 'tank' ? 35 : 20;
-    this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, particleCount);
-    this.eventBus.emit('bloodBurst', {
-      position: { ...enemy.position },
-      enemyType: enemy.enemyType,
-      intensity: particleCount,
-    });
+    // === WEAPON-SPECIFIC DEATH EFFECTS ===
+    this.spawnWeaponDeathEffect(enemy, weaponType);
 
-    // Multiple blood decals around death position
-    this.renderer.spawnBloodDecal(
-      enemy.position.x,
-      enemy.position.z,
-      enemy.enemyType === 'tank' ? 1.8 : 1.2
-    );
-    // Extra smaller splats
-    for (let i = 0; i < 2; i++) {
-      this.renderer.spawnBloodDecal(
-        enemy.position.x + (Math.random() - 0.5) * 2,
-        enemy.position.z + (Math.random() - 0.5) * 2,
-        0.5 + Math.random() * 0.5
-      );
-    }
-
-    // Screen shake (bigger for tanks)
-    const shakeIntensity = enemy.enemyType === 'tank' ? 0.8 : 0.4;
+    // Screen shake (bigger for tanks and explosive weapons)
+    let shakeIntensity = enemy.enemyType === 'tank' ? 0.8 : 0.4;
+    if (weaponType === 'shotgun') shakeIntensity *= 1.5;
+    if (weaponType === 'rocket') shakeIntensity *= 2.0;
     this.renderer.addScreenShake(shakeIntensity);
     this.eventBus.emit('screenShake', { intensity: shakeIntensity });
 
@@ -970,6 +956,112 @@ export class LocalGameLoop {
   private spawnPowerUp(position: Vec3): void {
     const pickup = this.pickupManager.spawnPowerUp(position);
     this.pickups.set(pickup.id, pickup);
+  }
+
+  /**
+   * Spawn weapon-specific death effects for visceral feedback
+   */
+  private spawnWeaponDeathEffect(enemy: EnemyState, weaponType?: import('@shared/types').WeaponType): void {
+    const isTank = enemy.enemyType === 'tank';
+    const baseParticles = isTank ? 35 : 20;
+    const baseDecalSize = isTank ? 1.8 : 1.2;
+
+    switch (weaponType) {
+      case 'shotgun':
+        // EXPLOSIVE - massive blood burst, many gibs, wide splatter
+        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 2);
+        // Spread decals in a wide cone
+        for (let i = 0; i < 5; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = 0.5 + Math.random() * 2;
+          this.renderer.spawnBloodDecal(
+            enemy.position.x + Math.cos(angle) * dist,
+            enemy.position.z + Math.sin(angle) * dist,
+            0.6 + Math.random() * 0.8
+          );
+        }
+        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 1.5);
+        break;
+
+      case 'rifle':
+        // PRECISION - clean kill, focused blood spray, single large decal
+        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles);
+        // Directional blood spray (behind enemy)
+        const dirX = enemy.position.x - (this.player?.position.x ?? 0);
+        const dirZ = enemy.position.z - (this.player?.position.z ?? 0);
+        const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
+        for (let i = 0; i < 3; i++) {
+          const spread = (Math.random() - 0.5) * 0.5;
+          this.renderer.spawnBloodDecal(
+            enemy.position.x + (dirX / len + spread) * (1 + i * 0.5),
+            enemy.position.z + (dirZ / len + spread) * (1 + i * 0.5),
+            0.4 + Math.random() * 0.4
+          );
+        }
+        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize);
+        break;
+
+      case 'machinegun':
+        // BRUTAL - multiple small blood bursts (like riddled with bullets)
+        for (let i = 0; i < 3; i++) {
+          setTimeout(() => {
+            const offset = { x: (Math.random() - 0.5) * 0.5, z: (Math.random() - 0.5) * 0.5 };
+            this.renderer.spawnBloodBurst(
+              { x: enemy.position.x + offset.x, y: enemy.position.y, z: enemy.position.z + offset.z },
+              enemy.enemyType,
+              Math.floor(baseParticles / 3)
+            );
+          }, i * 30);
+        }
+        // Multiple small decals
+        for (let i = 0; i < 4; i++) {
+          this.renderer.spawnBloodDecal(
+            enemy.position.x + (Math.random() - 0.5) * 1.5,
+            enemy.position.z + (Math.random() - 0.5) * 1.5,
+            0.3 + Math.random() * 0.4
+          );
+        }
+        break;
+
+      case 'rocket':
+        // VAPORIZED - huge explosion, massive blood cloud, no body
+        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 3);
+        // Large central crater of blood
+        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 2);
+        // Ring of smaller splats
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2;
+          const dist = 1.5 + Math.random();
+          this.renderer.spawnBloodDecal(
+            enemy.position.x + Math.cos(angle) * dist,
+            enemy.position.z + Math.sin(angle) * dist,
+            0.4 + Math.random() * 0.3
+          );
+        }
+        break;
+
+      case 'pistol':
+      default:
+        // Standard death - moderate blood
+        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles);
+        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize);
+        // Extra smaller splats
+        for (let i = 0; i < 2; i++) {
+          this.renderer.spawnBloodDecal(
+            enemy.position.x + (Math.random() - 0.5) * 2,
+            enemy.position.z + (Math.random() - 0.5) * 2,
+            0.5 + Math.random() * 0.5
+          );
+        }
+        break;
+    }
+
+    // Emit blood burst event for any listeners
+    this.eventBus.emit('bloodBurst', {
+      position: { ...enemy.position },
+      enemyType: enemy.enemyType,
+      intensity: baseParticles,
+    });
   }
 
   private spawnWeaponPickup(position: Vec3): void {
@@ -1119,9 +1211,10 @@ export class LocalGameLoop {
       const damage = baseDamage * dtSeconds * damageMultiplier;
       this.player.health -= damage;
 
-      // Trigger damage vignette (less intense with shield)
+      // Trigger damage vignette and chromatic aberration (less intense with shield)
       if (damage > 0.5) {
         this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+        this.renderer.triggerDamageEffect(hasShield ? 0.3 : 0.6);
 
         // Emit player hit event
         this.eventBus.emit('playerHit', {

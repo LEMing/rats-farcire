@@ -70,7 +70,7 @@ export class Game {
 
     // Apply configuration with defaults
     this.tickInterval = 1000 / (config.tickRate ?? TICK_RATE);
-    this.hitstopDuration = config.hitstopDuration ?? 8; // ms - subtle punch
+    this.hitstopDuration = config.hitstopDuration ?? 35; // ms - punchy hit feedback
 
     // Initial resize
     this.resize();

@@ -13,6 +13,9 @@ import {
   mul,
   add,
   sub,
+  fract,
+  dot,
+  floor,
 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import type { MapData, Vec3, EnemyType } from '@shared/types';
@@ -66,6 +69,11 @@ export class Renderer {
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
   private time = 0;
+
+  // Damage effect intensity (0-1, decays over time)
+  private readonly damageIntensityUniform = uniform(0);
+  private damageIntensity = 0;
+  private readonly damageDecayRate = 3.0; // How fast damage effect fades
 
   // Active thermobaric effects
   private thermobaricEffects: ThermobaricEffect[] = [];
@@ -187,9 +195,12 @@ export class Renderer {
       // 3. Subtle vignette - just enough to frame the action
       const withVignette = this.applyVignette(withBloom);
 
-      this.postProcessing.outputNode = withVignette;
+      // 4. Film grain - gritty, cinematic texture
+      const withGrain = this.applyFilmGrain(withVignette);
 
-      debug.log('Post-processing initialized');
+      this.postProcessing.outputNode = withGrain;
+
+      debug.log('Post-processing initialized with film grain');
     } catch (e) {
       debug.warn('Post-processing setup failed, using standard rendering:', e);
       this.usePostProcessing = false;
@@ -197,6 +208,7 @@ export class Renderer {
   }
 
   // Chromatic aberration - resamples texture at offset UVs for RGB split
+  // Intensifies when player takes damage for visceral feedback
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private applyChromaticAberration(scenePass: any) {
     const uvCoord = uv();
@@ -206,8 +218,13 @@ export class Renderer {
     const toCenter = sub(uvCoord, center);
     const dist = length(toCenter);
 
-    // Aberration strength with subtle pulse
-    const strength = add(0.012, mul(sin(mul(this.timeUniform, 1.5)), 0.002));
+    // Base aberration with subtle pulse
+    const baseStrength = add(0.012, mul(sin(mul(this.timeUniform, 1.5)), 0.002));
+
+    // Damage boost - significantly increases aberration when hurt
+    const damageBoost = mul(this.damageIntensityUniform, 0.08);
+    const strength = add(baseStrength, damageBoost);
+
     const aberrationOffset = mul(toCenter, mul(dist, strength));
 
     // Sample RGB at different UVs
@@ -233,6 +250,26 @@ export class Renderer {
 
     // Darken edges slightly - keeps gameplay area fully visible
     return mix(color, mul(color, 0.3), mul(vignette, 0.5));
+  }
+
+  // Film grain - adds gritty texture and movement
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyFilmGrain(color: any) {
+    const uvCoord = uv();
+
+    // Pseudo-random hash based on UV and time
+    const seed = add(
+      dot(floor(mul(uvCoord, 1000.0)), vec2(12.9898, 78.233)),
+      mul(this.timeUniform, 43758.5453)
+    );
+    const noise = fract(mul(sin(seed), 43758.5453));
+
+    // Grain intensity - subtle but noticeable
+    const grainStrength = 0.08;
+    const grain = mul(sub(noise, 0.5), grainStrength);
+
+    // Apply grain to color
+    return add(color, grain);
   }
 
   private setupIsometricCamera(): void {
@@ -468,8 +505,15 @@ export class Renderer {
     if (!this.initialized) return;
 
     // Update time uniform for animated shaders (laser, etc.)
-    this.time += 0.016; // ~60fps delta
+    const dt = 0.016; // ~60fps delta
+    this.time += dt;
     this.timeUniform.value = this.time;
+
+    // Decay damage intensity over time
+    if (this.damageIntensity > 0) {
+      this.damageIntensity = Math.max(0, this.damageIntensity - dt * this.damageDecayRate);
+      this.damageIntensityUniform.value = this.damageIntensity;
+    }
 
     // Pass time to map renderer for animations
     this.mapRenderer.updateTime(this.time);
@@ -539,6 +583,19 @@ export class Renderer {
       this.shakeOffset.set(0, 0, 0);
       this.shakeIntensity = 0;
     }
+  }
+
+  // ============================================================================
+  // Damage Visual Effect (chromatic aberration spike)
+  // ============================================================================
+
+  /**
+   * Trigger chromatic aberration spike when player takes damage
+   * @param intensity 0-1, how strong the effect should be
+   */
+  triggerDamageEffect(intensity: number = 1): void {
+    this.damageIntensity = Math.min(1, Math.max(this.damageIntensity, intensity));
+    this.damageIntensityUniform.value = this.damageIntensity;
   }
 
   createThermobaricEffect(position: Vec3, radius: number): void {

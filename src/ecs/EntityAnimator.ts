@@ -219,9 +219,9 @@ export class EntityAnimator {
     this.playerRecoil.offset = 0.25;
     this.playerRecoil.tilt = 0.08;
 
-    // Muzzle flash light
+    // Muzzle flash light - bright orange flash that illuminates surroundings
     if (!this.muzzleFlashLight) {
-      this.muzzleFlashLight = new THREE.PointLight(0xffaa44, 0, 8);
+      this.muzzleFlashLight = new THREE.PointLight(0xffaa44, 0, 12); // Larger range
       this.sceneProvider.addToScene(this.muzzleFlashLight);
     }
 
@@ -231,7 +231,8 @@ export class EntityAnimator {
     forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), entity.mesh.rotation.y);
     this.muzzleFlashLight.position.add(forward);
 
-    this.muzzleFlashIntensity = 4;
+    // Brighter flash for more dramatic effect
+    this.muzzleFlashIntensity = 8;
     this.muzzleFlashLight.intensity = this.muzzleFlashIntensity;
   }
 
