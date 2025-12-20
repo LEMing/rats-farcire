@@ -108,9 +108,10 @@ export class MenuRenderer {
   }
 
   resize(width: number, height: number): void {
+    if (!this.initialized || !this.camera || !this.renderer) return;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer?.setSize(width, height);
+    this.renderer.setSize(width, height);
   }
 
   dispose(): void {

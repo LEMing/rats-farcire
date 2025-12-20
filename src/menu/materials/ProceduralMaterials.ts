@@ -80,7 +80,7 @@ export class ProceduralMaterials {
       const layerScale = float(2.0 + i * 1.5);
       const layerSpeed = mul(t, config.fogSpeed * (1 + i * 0.3));
       const layerUV = add(mul(swirlUV, layerScale), layerSpeed);
-      const noise = this.fbmNoise(layerUV, 4);
+      const noise = this.fbmNoise(layerUV, 2);
 
       // Purple/magenta fog colors
       const fogTint = vec3(

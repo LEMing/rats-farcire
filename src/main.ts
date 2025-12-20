@@ -45,8 +45,8 @@ let menuRenderer: MenuRenderer | null = null;
 
 // Initialize menu background with delay to let contexts release
 async function initMenuBackground() {
-  // Wait for any previous contexts to be fully released
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Wait for any previous contexts to be fully released (reduced from 150ms)
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   const menuBgContainer = document.getElementById('menu-background')!;
   menuRenderer = new MenuRenderer(menuBgContainer);
@@ -54,9 +54,10 @@ async function initMenuBackground() {
   try {
     await menuRenderer.init();
     menuRenderer.start();
+    console.log('Menu 3D background started successfully');
   } catch (e) {
     // Menu background is optional - game can still work without it
-    debug.warn('Menu background failed to initialize, continuing without it:', e);
+    console.warn('Menu background failed to initialize:', e);
     menuRenderer = null;
   }
 }

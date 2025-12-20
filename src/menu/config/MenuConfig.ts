@@ -79,8 +79,8 @@ export const MenuConfig = {
     // Swirling vortex effect
     vortexSpeed: 0.15,
     vortexStrength: 0.3,
-    // Fog/atmosphere layers
-    fogLayers: 4,
+    // Fog/atmosphere layers (reduced from 4 for faster shader compilation)
+    fogLayers: 2,
     fogSpeed: 0.08,
     // Pulse effect
     pulseSpeed: 0.8,
