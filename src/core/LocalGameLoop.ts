@@ -648,7 +648,8 @@ export class LocalGameLoop {
       if (physicsResult.toRemove.includes(id)) continue;
 
       // Check if this is an enemy projectile (hits player)
-      const isEnemyProjectile = this.enemies.has(proj.ownerId);
+      // Use the flag on projectile instead of checking if enemy still exists
+      const isEnemyProjectile = proj.isEnemyProjectile === true;
 
       if (isEnemyProjectile && this.player && !this.player.isDead) {
         // Enemy projectile - check collision with player

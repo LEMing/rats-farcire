@@ -117,6 +117,7 @@ export class EnemyWeaponSystem {
       damage: rangedConfig.damage,
       lifetime: 2000, // 2 seconds
       createdAt: now,
+      isEnemyProjectile: true, // Mark as enemy projectile (persists even if enemy dies)
     };
 
     // Update state

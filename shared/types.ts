@@ -114,6 +114,7 @@ export interface ProjectileState extends Entity {
   lifetime: number;
   createdAt: number;
   weaponType?: WeaponType; // For weapon-specific visuals
+  isEnemyProjectile?: boolean; // True if shot by enemy (persists even if enemy dies)
 }
 
 export type PickupType = 'health' | 'ammo' | 'powerup' | 'weapon';
