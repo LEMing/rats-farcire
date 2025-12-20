@@ -736,6 +736,26 @@ export class Renderer {
     this.particleSystem.spawnBloodBurst(position, enemyType, count);
   }
 
+  spawnGibs(position: Vec3, count: number = 6): void {
+    this.particleSystem.spawnGibs(position, count);
+  }
+
+  markEntityBloody(entityId: string, x: number, z: number): void {
+    this.particleSystem.markEntityBloody(entityId, x, z);
+  }
+
+  updateEntityBloodTrail(entityId: string, x: number, z: number, rotation: number): void {
+    this.particleSystem.updateEntityBloodTrail(entityId, x, z, rotation);
+  }
+
+  removeEntityBloodTrail(entityId: string): void {
+    this.particleSystem.removeEntityBloodTrail(entityId);
+  }
+
+  spawnWallSplatter(x: number, z: number, y: number, face: 'north' | 'south' | 'east' | 'west', size: number = 1): void {
+    this.particleSystem.spawnWallSplatter(x, z, y, face, size);
+  }
+
   updateParticles(dt: number): void {
     this.particleSystem.update(dt);
   }

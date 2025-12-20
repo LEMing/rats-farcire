@@ -467,6 +467,14 @@ export class LocalGameLoop {
 
     // Update entity manager
     this.entities.updatePlayer(this.player);
+
+    // Update blood footprints trail
+    this.renderer.updateEntityBloodTrail(
+      this.player.id,
+      this.player.position.x,
+      this.player.position.z,
+      this.player.rotation
+    );
   }
 
   /**
@@ -913,6 +921,9 @@ export class LocalGameLoop {
     // Register kill for kill rating system (DOUBLE KILL, MASSACRE, etc.)
     this.ui.registerKill();
 
+    // Mark player as bloody (will leave blood footprints)
+    this.renderer.markEntityBloody(this.player.id, this.player.position.x, this.player.position.z);
+
     // Score popup at enemy position
     const screenPos = this.renderer.worldToScreen(enemy.position);
     this.ui.spawnScorePopup(screenPos.x, screenPos.y, finalScore, this.player.comboCount);
@@ -977,6 +988,7 @@ export class LocalGameLoop {
       case 'shotgun':
         // EXPLOSIVE - massive blood burst, many gibs, wide splatter
         this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 2);
+        this.renderer.spawnGibs(enemy.position, isTank ? 10 : 6);
         // Spread decals in a wide cone
         for (let i = 0; i < 5; i++) {
           const angle = Math.random() * Math.PI * 2;
@@ -1031,8 +1043,9 @@ export class LocalGameLoop {
         break;
 
       case 'rocket':
-        // VAPORIZED - huge explosion, massive blood cloud, no body
+        // VAPORIZED - huge explosion, massive blood cloud, body chunks everywhere
         this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 3);
+        this.renderer.spawnGibs(enemy.position, isTank ? 15 : 8);
         // Large central crater of blood
         this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 2);
         // Ring of smaller splats
@@ -1063,12 +1076,82 @@ export class LocalGameLoop {
         break;
     }
 
+    // Spawn wall blood splatters if enemy died near a wall
+    this.spawnWallBloodSplatters(enemy.position, baseDecalSize);
+
     // Emit blood burst event for any listeners
     this.eventBus.emit('bloodBurst', {
       position: { ...enemy.position },
       enemyType: enemy.enemyType,
       intensity: baseParticles,
     });
+  }
+
+  /**
+   * Check for nearby walls and spawn blood splatters on them
+   */
+  private spawnWallBloodSplatters(position: Vec3, intensity: number): void {
+    // Convert world position to tile coordinates
+    const tileX = Math.floor(position.x / TILE_SIZE);
+    const tileZ = Math.floor(position.z / TILE_SIZE);
+
+    // Check adjacent tiles for walls and spawn splatters
+    const wallCheckDistance = 1.5; // How close to wall for splatter
+    const directions: Array<{ dx: number; dz: number; face: 'north' | 'south' | 'east' | 'west' }> = [
+      { dx: 0, dz: -1, face: 'south' },  // Wall to north, face south
+      { dx: 0, dz: 1, face: 'north' },   // Wall to south, face north
+      { dx: 1, dz: 0, face: 'west' },    // Wall to east, face west
+      { dx: -1, dz: 0, face: 'east' },   // Wall to west, face east
+    ];
+
+    for (const dir of directions) {
+      const checkX = tileX + dir.dx;
+      const checkZ = tileZ + dir.dz;
+
+      // Bounds check
+      if (checkX < 0 || checkX >= this.mapData.width || checkZ < 0 || checkZ >= this.mapData.height) {
+        continue;
+      }
+
+      const tile = this.mapData.tiles[checkZ]?.[checkX];
+      if (!tile || tile.type !== 'wall') continue;
+
+      // Calculate wall position (center of wall tile edge)
+      const wallWorldX = checkX * TILE_SIZE + TILE_SIZE / 2;
+      const wallWorldZ = checkZ * TILE_SIZE + TILE_SIZE / 2;
+
+      // Check distance to wall
+      const dx = position.x - wallWorldX;
+      const dz = position.z - wallWorldZ;
+      const distToWall = Math.sqrt(dx * dx + dz * dz);
+
+      if (distToWall > wallCheckDistance * TILE_SIZE) continue;
+
+      // Spawn 2-4 splatters on this wall face
+      const splatterCount = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < splatterCount; i++) {
+        // Position on the wall face
+        let splatterX = wallWorldX;
+        let splatterZ = wallWorldZ;
+
+        // Adjust to be on the correct face of the wall
+        if (dir.face === 'south') splatterZ += TILE_SIZE / 2 + 0.01;
+        if (dir.face === 'north') splatterZ -= TILE_SIZE / 2 - 0.01;
+        if (dir.face === 'west') splatterX += TILE_SIZE / 2 + 0.01;
+        if (dir.face === 'east') splatterX -= TILE_SIZE / 2 - 0.01;
+
+        // Random height on wall
+        const splatterY = 0.3 + Math.random() * 1.5;
+
+        this.renderer.spawnWallSplatter(
+          splatterX,
+          splatterZ,
+          splatterY,
+          dir.face,
+          0.6 + Math.random() * 0.6 * intensity
+        );
+      }
+    }
   }
 
   private spawnWeaponPickup(position: Vec3): void {
