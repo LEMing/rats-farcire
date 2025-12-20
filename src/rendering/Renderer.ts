@@ -145,6 +145,9 @@ export class Renderer {
       // Initialize zone lighting
       this.zoneLighting = new ZoneLighting(this.scene);
 
+      // Pre-warm explosion shaders to avoid stutter on first explosion
+      ThermobaricEffect.prewarm(this.scene, this.renderer);
+
       this.initialized = true;
       debug.log('WebGPU Renderer initialized');
     } catch (e) {
