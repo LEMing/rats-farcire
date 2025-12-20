@@ -12,11 +12,30 @@ interface QueuedNotification {
   duration: number;
 }
 
+// Kill rating thresholds and messages
+const KILL_RATINGS = [
+  { kills: 2, text: 'DOUBLE KILL', color: '#ffff00' },
+  { kills: 3, text: 'TRIPLE KILL', color: '#ff8800' },
+  { kills: 4, text: 'MULTI KILL', color: '#ff4400' },
+  { kills: 5, text: 'MEGA KILL', color: '#ff0044' },
+  { kills: 6, text: 'ULTRA KILL', color: '#ff00ff' },
+  { kills: 7, text: 'MONSTER KILL', color: '#aa00ff' },
+  { kills: 8, text: 'MASSACRE!', color: '#8800ff' },
+  { kills: 10, text: 'BRUTAL!', color: '#ff0000' },
+  { kills: 15, text: 'GODLIKE!', color: '#ffffff' },
+];
+
 export class UIEffects {
   private damageVignette: HTMLElement;
   private killFlash: HTMLElement;
   private damageNumbersContainer: HTMLElement;
+  private killRatingContainer: HTMLElement;
   private lowHealthPulse = 0;
+
+  // Kill rating tracking
+  private rapidKillCount = 0;
+  private rapidKillTimer = 0;
+  private readonly RAPID_KILL_WINDOW = 1500; // ms between kills to count as rapid
 
   // Notification queue system
   private notificationQueue: QueuedNotification[] = [];
@@ -27,7 +46,24 @@ export class UIEffects {
     this.damageVignette = this.createDamageVignette();
     this.killFlash = this.createKillFlash();
     this.damageNumbersContainer = this.createDamageNumbersContainer();
+    this.killRatingContainer = this.createKillRatingContainer();
     this.injectStyles();
+  }
+
+  private createKillRatingContainer(): HTMLElement {
+    const container = document.createElement('div');
+    container.id = 'kill-rating';
+    container.style.cssText = `
+      position: absolute;
+      top: 35%;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 200;
+      text-align: center;
+    `;
+    document.getElementById('ui-overlay')?.appendChild(container);
+    return container;
   }
 
   private createDamageVignette(): HTMLElement {
@@ -111,6 +147,63 @@ export class UIEffects {
       this.killFlash.style.transition = 'opacity 0.2s ease-out';
       this.killFlash.style.opacity = '0';
     }, 50);
+  }
+
+  /**
+   * Register a kill and show kill rating if applicable
+   */
+  registerKill(): void {
+    const now = Date.now();
+
+    // Check if this kill is within the rapid kill window
+    if (now - this.rapidKillTimer < this.RAPID_KILL_WINDOW) {
+      this.rapidKillCount++;
+    } else {
+      this.rapidKillCount = 1;
+    }
+
+    this.rapidKillTimer = now;
+
+    // Find the appropriate kill rating
+    let rating = null;
+    for (let i = KILL_RATINGS.length - 1; i >= 0; i--) {
+      if (this.rapidKillCount >= KILL_RATINGS[i].kills) {
+        rating = KILL_RATINGS[i];
+        break;
+      }
+    }
+
+    if (rating) {
+      this.showKillRating(rating.text, rating.color);
+    }
+  }
+
+  private showKillRating(text: string, color: string): void {
+    // Clear existing rating
+    this.killRatingContainer.innerHTML = '';
+
+    const element = document.createElement('div');
+    element.className = 'kill-rating-text';
+    element.textContent = text;
+    element.style.cssText = `
+      font-size: 48px;
+      font-weight: bold;
+      color: ${color};
+      text-shadow:
+        0 0 20px ${color},
+        0 0 40px ${color},
+        0 0 60px ${color},
+        3px 3px 0 #000,
+        -1px -1px 0 #000;
+      letter-spacing: 6px;
+      animation: killRatingPop 1.2s ease-out forwards;
+      text-transform: uppercase;
+    `;
+
+    this.killRatingContainer.appendChild(element);
+
+    // Remove after animation
+    setTimeout(() => element.remove(), 1200);
   }
 
   updateLowHealthPulse(healthPercent: number): void {
@@ -383,6 +476,33 @@ export class UIEffects {
         }
         100% {
           opacity: 0;
+        }
+      }
+      @keyframes killRatingPop {
+        0% {
+          opacity: 0;
+          transform: scale(0.3) rotate(-10deg);
+        }
+        15% {
+          opacity: 1;
+          transform: scale(1.4) rotate(3deg);
+        }
+        30% {
+          transform: scale(0.9) rotate(-2deg);
+        }
+        45% {
+          transform: scale(1.1) rotate(1deg);
+        }
+        60% {
+          transform: scale(1) rotate(0deg);
+        }
+        85% {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+        100% {
+          opacity: 0;
+          transform: scale(1.2) translateY(-30px);
         }
       }
     `;

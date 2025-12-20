@@ -75,6 +75,11 @@ export class Renderer {
   private damageIntensity = 0;
   private readonly damageDecayRate = 3.0; // How fast damage effect fades
 
+  // Low health effect (0-1, desaturation and pulse)
+  private readonly lowHealthUniform = uniform(0);
+  private lowHealthIntensity = 0;
+  private lowHealthPulseTime = 0;
+
   // Active thermobaric effects
   private thermobaricEffects: ThermobaricEffect[] = [];
 
@@ -195,8 +200,11 @@ export class Renderer {
       // 3. Subtle vignette - just enough to frame the action
       const withVignette = this.applyVignette(withBloom);
 
-      // 4. Film grain - gritty, cinematic texture
-      const withGrain = this.applyFilmGrain(withVignette);
+      // 4. Low health desaturation - dramatic when dying
+      const withLowHealth = this.applyLowHealthEffect(withVignette);
+
+      // 5. Film grain - gritty, cinematic texture
+      const withGrain = this.applyFilmGrain(withLowHealth);
 
       this.postProcessing.outputNode = withGrain;
 
@@ -270,6 +278,23 @@ export class Renderer {
 
     // Apply grain to color
     return add(color, grain);
+  }
+
+  // Low health desaturation - colors fade to grayish-red
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private applyLowHealthEffect(color: any) {
+    // Calculate grayscale (luminance)
+    const luminance = dot(color, vec3(0.299, 0.587, 0.114));
+
+    // Tint the grayscale slightly red for that "dying" feel
+    const desaturated = vec3(
+      add(luminance, 0.1),  // Slight red boost
+      mul(luminance, 0.85), // Reduce green
+      mul(luminance, 0.85)  // Reduce blue
+    );
+
+    // Mix between color and desaturated based on low health intensity
+    return mix(color, desaturated, this.lowHealthUniform);
   }
 
   private setupIsometricCamera(): void {
@@ -596,6 +621,29 @@ export class Renderer {
   triggerDamageEffect(intensity: number = 1): void {
     this.damageIntensity = Math.min(1, Math.max(this.damageIntensity, intensity));
     this.damageIntensityUniform.value = this.damageIntensity;
+  }
+
+  /**
+   * Set low health visual effect intensity (desaturation + pulse)
+   * @param healthPercent 0-100, current health percentage
+   */
+  setLowHealthIntensity(healthPercent: number): void {
+    // Start effect below 30% health, full intensity at 0%
+    if (healthPercent < 30 && healthPercent > 0) {
+      const baseIntensity = (30 - healthPercent) / 30; // 0 at 30%, 1 at 0%
+
+      // Add heartbeat pulse
+      this.lowHealthPulseTime += 0.1;
+      const heartbeat = Math.sin(this.lowHealthPulseTime * 4) * 0.5 + 0.5; // Faster pulse when health is lower
+      const pulseIntensity = baseIntensity * 0.3; // Pulse adds up to 30% variation
+
+      this.lowHealthIntensity = baseIntensity * 0.7 + heartbeat * pulseIntensity;
+      this.lowHealthUniform.value = Math.min(0.6, this.lowHealthIntensity); // Cap at 60% desaturation
+    } else {
+      this.lowHealthIntensity = 0;
+      this.lowHealthUniform.value = 0;
+      this.lowHealthPulseTime = 0;
+    }
   }
 
   createThermobaricEffect(position: Vec3, radius: number): void {

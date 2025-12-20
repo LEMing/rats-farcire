@@ -536,6 +536,13 @@ export class UIManager {
     this.effects.triggerKillFlash();
   }
 
+  /**
+   * Register a kill for the kill rating system (DOUBLE KILL, MASSACRE, etc.)
+   */
+  registerKill(): void {
+    this.effects.registerKill();
+  }
+
   spawnDamageNumber(screenX: number, screenY: number, damage: number, isCritical: boolean = false, combo: number = 0): void {
     this.effects.spawnDamageNumber(screenX, screenY, damage, isCritical, combo);
   }

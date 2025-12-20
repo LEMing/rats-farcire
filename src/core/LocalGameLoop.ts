@@ -394,6 +394,10 @@ export class LocalGameLoop {
         tardisPos: this.mapData.tardisPosition,
       },
     });
+
+    // Update low health visual effect (desaturation + pulse)
+    const healthPercent = (this.player.health / this.player.maxHealth) * 100;
+    this.renderer.setLowHealthIntensity(healthPercent);
   }
 
   private updatePlayer(input: InputState, dt: number): void {
@@ -905,6 +909,9 @@ export class LocalGameLoop {
 
     // Kill flash effect
     this.ui.triggerKillFlash();
+
+    // Register kill for kill rating system (DOUBLE KILL, MASSACRE, etc.)
+    this.ui.registerKill();
 
     // Score popup at enemy position
     const screenPos = this.renderer.worldToScreen(enemy.position);
