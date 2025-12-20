@@ -219,16 +219,16 @@ export function getEnemySpeedMultiplier(wave: number): number {
 }
 
 // Waves - all enemy types from wave 1
-export const WAVE_START_DELAY = 2000; // 2 seconds between waves
+export const WAVE_START_DELAY = 1500; // 1.5 seconds between waves
 export const WAVE_CONFIGS = [
-  // Wave 1: Full variety from the start
-  { enemyCount: 25, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 500 },
-  // Wave 2: More enemies
-  { enemyCount: 35, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 450 },
-  // Wave 3: Faster spawning
-  { enemyCount: 45, types: [{ type: 'grunt', weight: 0.15 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 400 },
-  // Wave 4+: More hunters and ranged
-  { enemyCount: 60, types: [{ type: 'grunt', weight: 0.1 }, { type: 'runner', weight: 0.15 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.2 }, { type: 'hunter', weight: 0.2 }], spawnDelay: 350 },
+  // Wave 1: Full variety from the start - intense!
+  { enemyCount: 40, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 350 },
+  // Wave 2: More enemies, faster spawning
+  { enemyCount: 55, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 300 },
+  // Wave 3: Even more intense
+  { enemyCount: 70, types: [{ type: 'grunt', weight: 0.15 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 250 },
+  // Wave 4+: Swarm mode - more hunters and ranged
+  { enemyCount: 90, types: [{ type: 'grunt', weight: 0.1 }, { type: 'runner', weight: 0.15 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.2 }, { type: 'hunter', weight: 0.2 }], spawnDelay: 200 },
 ] as const;
 
 // Get wave config (cycles with increasing difficulty)
@@ -238,9 +238,9 @@ export function getWaveConfig(wave: number) {
   const multiplier = Math.floor((wave - 1) / WAVE_CONFIGS.length) + 1;
 
   return {
-    enemyCount: Math.floor((4 + wave * 2) * multiplier),
+    enemyCount: Math.floor((10 + wave * 5) * multiplier), // More enemies per wave
     types: [...config.types] as { type: 'grunt' | 'runner' | 'tank' | 'gunner' | 'sniper' | 'hunter'; weight: number }[],
-    spawnDelay: Math.max(300, config.spawnDelay - multiplier * 50),
+    spawnDelay: Math.max(150, config.spawnDelay - multiplier * 30), // Faster spawning
   };
 }
 
