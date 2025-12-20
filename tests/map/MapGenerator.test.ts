@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MapGenerator } from '../../src/map/MapGenerator';
+import { MAX_ROOM_SIZE } from '../../shared/constants';
 
 describe('MapGenerator', () => {
   describe('constructor', () => {
@@ -103,8 +104,8 @@ describe('MapGenerator', () => {
       for (const room of map.rooms) {
         expect(room.width).toBeGreaterThanOrEqual(4); // MIN_ROOM_SIZE
         expect(room.height).toBeGreaterThanOrEqual(4);
-        expect(room.width).toBeLessThanOrEqual(12); // MAX_ROOM_SIZE
-        expect(room.height).toBeLessThanOrEqual(12);
+        expect(room.width).toBeLessThanOrEqual(MAX_ROOM_SIZE);
+        expect(room.height).toBeLessThanOrEqual(MAX_ROOM_SIZE);
       }
     });
 

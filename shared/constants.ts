@@ -11,11 +11,11 @@ export const CLIENT_RENDER_DELAY = 100; // ms of interpolation delay
 
 // Map
 export const TILE_SIZE = 2; // World units per tile
-export const MAP_WIDTH = 64; // tiles (larger map)
-export const MAP_HEIGHT = 64; // tiles
+export const MAP_WIDTH = 96; // tiles (larger map)
+export const MAP_HEIGHT = 96; // tiles
 export const MIN_ROOM_SIZE = 5;
-export const MAX_ROOM_SIZE = 12;
-export const ROOM_COUNT = 10;
+export const MAX_ROOM_SIZE = 14;
+export const ROOM_COUNT = 16;
 export const CORRIDOR_WIDTH = 2;
 
 // Player
@@ -109,31 +109,108 @@ export const SHOTGUN_SPREAD = 0.25;
 export const ENEMY_CONFIGS = {
   grunt: {
     health: 40,
-    speed: 5, // faster
+    speed: 5,
     damage: 18,
     attackCooldown: 800,
     attackRange: 0.7,
     hitboxRadius: 0.55,
     score: 10,
+    isRanged: false,
   },
   runner: {
     health: 25,
-    speed: 8, // much faster
+    speed: 8,
     damage: 8,
     attackCooldown: 400,
     attackRange: 0.6,
     hitboxRadius: 0.4,
     score: 15,
+    isRanged: false,
   },
   tank: {
     health: 120,
-    speed: 3, // faster than before
+    speed: 3,
     damage: 30,
     attackCooldown: 1500,
     attackRange: 1.0,
     hitboxRadius: 0.8,
     score: 30,
+    isRanged: false,
   },
+  gunner: {
+    health: 35,
+    speed: 4,
+    damage: 12,
+    attackCooldown: 600,    // Time between shots
+    attackRange: 12,        // Ranged attack distance
+    hitboxRadius: 0.5,
+    score: 20,
+    isRanged: true,
+    projectileSpeed: 20,
+    accuracy: 0.85,         // Base accuracy (1 = perfect)
+    reloadTime: 2000,       // ms to reload
+    magazineSize: 6,
+  },
+  sniper: {
+    health: 25,
+    speed: 2.5,
+    damage: 35,
+    attackCooldown: 1500,   // Slow but powerful
+    attackRange: 20,        // Long range
+    hitboxRadius: 0.45,
+    score: 30,
+    isRanged: true,
+    projectileSpeed: 35,
+    accuracy: 0.95,         // Very accurate
+    reloadTime: 3000,
+    magazineSize: 3,
+  },
+  hunter: {
+    health: 60,             // Tough special soldier
+    speed: 5.5,             // Fast - actively hunts
+    damage: 25,             // Rifle damage
+    attackCooldown: 800,    // Moderate fire rate
+    attackRange: 16,        // Good range
+    hitboxRadius: 0.55,
+    score: 50,              // High value target
+    isRanged: true,
+    projectileSpeed: 30,
+    accuracy: 0.9,          // Very accurate
+    reloadTime: 1800,
+    magazineSize: 8,
+    isHunter: true,         // Special flag - always hunts player
+  },
+} as const;
+
+// Detection settings for tactical AI
+export const DETECTION_CONFIG = {
+  // Vision
+  visionRange: 15,          // Tiles
+  visionAngle: 60,          // Degrees (half cone)
+  peripheralRange: 8,       // Shorter range for peripheral
+  peripheralAngle: 120,     // Wider angle
+  // Detection speed (0-1 per second)
+  centralDetectionRate: 1.5,    // Fast detection in central vision
+  peripheralDetectionRate: 0.5, // Slower in peripheral
+  // Detection decay when player not visible
+  detectionDecayRate: 0.3,
+  // Thresholds
+  alertThreshold: 0.3,      // Start investigating
+  detectedThreshold: 0.8,   // Full detection, attack
+  // Hearing
+  gunshotRange: 25,         // Tiles - gunshots are loud
+  footstepRange: 5,         // Tiles - player running
+  // Alert propagation
+  alertRadius: 8,           // Tiles - nearby enemies get alerted
+} as const;
+
+// Cover system settings
+export const COVER_CONFIG = {
+  coverSearchRadius: 10,    // How far to look for cover
+  minCoverDistance: 3,      // Min distance from threat
+  maxCoverDistance: 12,     // Max distance from threat
+  peekDuration: 500,        // ms to peek and shoot
+  hideDuration: 1500,       // ms to hide between peeks
 } as const;
 
 // Enemy speed scaling per wave
@@ -141,14 +218,17 @@ export function getEnemySpeedMultiplier(wave: number): number {
   return 1 + wave * 0.1; // 10% faster each wave
 }
 
-// Waves - more enemies, faster spawning
-export const WAVE_START_DELAY = 2000; // 2 seconds between waves (was 3-5)
+// Waves - all enemy types from wave 1
+export const WAVE_START_DELAY = 2000; // 2 seconds between waves
 export const WAVE_CONFIGS = [
-  { enemyCount: 6, types: [{ type: 'grunt', weight: 1 }], spawnDelay: 800 },
-  { enemyCount: 10, types: [{ type: 'grunt', weight: 0.7 }, { type: 'runner', weight: 0.3 }], spawnDelay: 700 },
-  { enemyCount: 14, types: [{ type: 'grunt', weight: 0.5 }, { type: 'runner', weight: 0.5 }], spawnDelay: 600 },
-  { enemyCount: 18, types: [{ type: 'grunt', weight: 0.4 }, { type: 'runner', weight: 0.4 }, { type: 'tank', weight: 0.2 }], spawnDelay: 500 },
-  { enemyCount: 24, types: [{ type: 'grunt', weight: 0.3 }, { type: 'runner', weight: 0.5 }, { type: 'tank', weight: 0.2 }], spawnDelay: 400 },
+  // Wave 1: Full variety from the start
+  { enemyCount: 25, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 500 },
+  // Wave 2: More enemies
+  { enemyCount: 35, types: [{ type: 'grunt', weight: 0.2 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.2 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 450 },
+  // Wave 3: Faster spawning
+  { enemyCount: 45, types: [{ type: 'grunt', weight: 0.15 }, { type: 'runner', weight: 0.2 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.15 }, { type: 'hunter', weight: 0.15 }], spawnDelay: 400 },
+  // Wave 4+: More hunters and ranged
+  { enemyCount: 60, types: [{ type: 'grunt', weight: 0.1 }, { type: 'runner', weight: 0.15 }, { type: 'gunner', weight: 0.25 }, { type: 'tank', weight: 0.1 }, { type: 'sniper', weight: 0.2 }, { type: 'hunter', weight: 0.2 }], spawnDelay: 350 },
 ] as const;
 
 // Get wave config (cycles with increasing difficulty)
@@ -158,8 +238,8 @@ export function getWaveConfig(wave: number) {
   const multiplier = Math.floor((wave - 1) / WAVE_CONFIGS.length) + 1;
 
   return {
-    enemyCount: Math.floor((4 + wave * 2) * multiplier), // Simple scaling like codex
-    types: [...config.types] as { type: 'grunt' | 'runner' | 'tank'; weight: number }[],
+    enemyCount: Math.floor((4 + wave * 2) * multiplier),
+    types: [...config.types] as { type: 'grunt' | 'runner' | 'tank' | 'gunner' | 'sniper' | 'hunter'; weight: number }[],
     spawnDelay: Math.max(300, config.spawnDelay - multiplier * 50),
   };
 }
@@ -223,6 +303,9 @@ export const BLOOD_COLORS = {
   grunt: 0x990000,
   runner: 0xcc3300,
   tank: 0x660033,
+  gunner: 0x880022,  // Dark red for gunner
+  sniper: 0x770033,  // Purple-red for sniper
+  hunter: 0x660000,  // Deep crimson for hunter
 } as const;
 
 // Colors (hex)
@@ -232,9 +315,14 @@ export const COLORS = {
   debris: 0x4a4a6a,
   puddle: 0x2d4a5c,
   player: 0x79c0ff, // brighter blue like codex
-  enemy: 0xe26b6b, // slightly different red
-  enemyRunner: 0xff8866,
-  enemyTank: 0x993333,
+  // Enemy colors by type
+  enemy: 0xe26b6b,        // Default/grunt - red
+  enemyGrunt: 0xe26b6b,   // Red - basic melee
+  enemyRunner: 0xff8866,  // Orange - fast melee
+  enemyTank: 0x993333,    // Dark red - heavy melee
+  enemyGunner: 0x6b8be2,  // Blue - ranged soldier
+  enemySniper: 0x8b6be2,  // Purple - long range
+  enemyHunter: 0x2a9d8f,  // Teal/green - elite hunter (special uniform)
   projectile: 0xfff4b2, // warm yellow like codex
   health: 0x7cff79, // brighter green
   ammo: 0xffd700,

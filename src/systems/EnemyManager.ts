@@ -3,9 +3,15 @@
  *
  * Single Responsibility: Enemy lifecycle, movement physics, spatial indexing
  * Does NOT handle: Damage calculation, death effects, drops
+ *
+ * Now includes tactical AI for smart enemy behaviors:
+ * - Detection (vision/hearing)
+ * - Patrol/Alert/Engage states
+ * - Cover usage
+ * - Ranged combat
  */
 
-import type { EnemyState, MapData, Vec3 } from '@shared/types';
+import type { EnemyState, MapData, Vec3, Vec2, ProjectileState, EnemyType } from '@shared/types';
 import {
   ENEMY_CONFIGS,
   TILE_SIZE,
@@ -17,20 +23,24 @@ import { generateId, isWalkableWithRadius, distance, angleBetween } from '@share
 import { processKnockback } from './KnockbackUtils';
 import { SpatialHash, SpatialEntity } from './SpatialHash';
 import { EnemyAI } from '../ai/EnemyAI';
+import { BehaviorStateMachine, BehaviorContext } from '../ai/BehaviorStates';
+import { EnemyWeaponSystem } from './EnemyWeaponSystem';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface SpawnEnemyRequest {
-  enemyType: 'grunt' | 'runner' | 'tank';
+  enemyType: EnemyType;
   spawnPoint: { x: number; y: number };
   targetId: string | null;
 }
 
 export interface EnemyUpdateResult {
-  /** Enemies that are now in attack range */
+  /** Enemies that are now in melee attack range */
   attackingEnemies: EnemyState[];
+  /** Projectiles created by ranged enemies this frame */
+  enemyProjectiles: ProjectileState[];
 }
 
 export interface EnemyManagerCallbacks {
@@ -45,6 +55,8 @@ export interface EnemyManagerCallbacks {
 export class EnemyManager {
   private mapData: MapData;
   private ai: EnemyAI;
+  private behaviorSystem: BehaviorStateMachine;
+  private weaponSystem: EnemyWeaponSystem;
   private spatialHash = new SpatialHash<SpatialEntity>(4);
   private callbacks: EnemyManagerCallbacks;
 
@@ -54,6 +66,8 @@ export class EnemyManager {
   ) {
     this.mapData = mapData;
     this.ai = new EnemyAI(mapData);
+    this.behaviorSystem = new BehaviorStateMachine(mapData);
+    this.weaponSystem = new EnemyWeaponSystem();
     this.callbacks = callbacks;
   }
 
@@ -62,6 +76,7 @@ export class EnemyManager {
    */
   spawnEnemy(request: SpawnEnemyRequest): EnemyState {
     const config = ENEMY_CONFIGS[request.enemyType];
+    const isRanged = 'isRanged' in config && config.isRanged;
 
     const enemy: EnemyState = {
       id: generateId(),
@@ -77,8 +92,12 @@ export class EnemyManager {
       maxHealth: config.health,
       enemyType: request.enemyType,
       targetId: request.targetId,
-      state: 'idle',
+      state: 'patrol', // Start patrolling
       knockbackVelocity: { x: 0, y: 0 },
+      // Tactical AI fields
+      tacticalState: 'patrol',
+      detectionLevel: 0,
+      patrolWaypointIndex: 0,
     };
 
     // Add to spatial hash
@@ -89,6 +108,11 @@ export class EnemyManager {
       radius: config.hitboxRadius,
     });
 
+    // Initialize weapon state for ranged enemies
+    if (isRanged) {
+      this.weaponSystem.resetMagazine(enemy);
+    }
+
     this.callbacks.onEnemySpawned?.(enemy);
 
     return enemy;
@@ -96,7 +120,7 @@ export class EnemyManager {
 
   /**
    * Update all enemies - movement, knockback, spatial hash
-   * Returns list of enemies in attack range
+   * Returns list of enemies in melee attack range and projectiles from ranged enemies
    */
   updateEnemies(
     enemies: Map<string, EnemyState>,
@@ -105,30 +129,58 @@ export class EnemyManager {
     dt: number
   ): EnemyUpdateResult {
     const dtSeconds = dt / 1000;
+    const now = Date.now();
     const attackingEnemies: EnemyState[] = [];
-    const playerPos2D = { x: playerPos.x, y: playerPos.z };
+    const enemyProjectiles: ProjectileState[] = [];
+    const playerPos2D: Vec2 = { x: playerPos.x, y: playerPos.z };
 
     for (const enemy of enemies.values()) {
       if (enemy.state === 'dead') continue;
 
       const config = ENEMY_CONFIGS[enemy.enemyType];
+      const isRanged = 'isRanged' in config && config.isRanged;
 
-      // Apply knockback
+      // Apply knockback first
       this.applyKnockback(enemy, dtSeconds);
 
-      // Get AI movement direction
-      const moveDir = this.ai.getMovementDirection(
+      // Get detection result
+      const detectionSystem = this.behaviorSystem.getDetectionSystem();
+      const detection = detectionSystem.updateDetection(enemy, playerPos, dtSeconds);
+
+      // Run behavior state machine
+      const behaviorContext: BehaviorContext = {
         enemy,
         playerPos,
-        enemies.values()
-      );
+        playerVisible: detection.alertState === 'detected',
+        detection,
+        dtSeconds,
+        now,
+      };
 
-      // Move enemy (speed scales with wave)
-      const speed = config.speed * getEnemySpeedMultiplier(waveNumber);
-      this.applyMovement(enemy, moveDir, speed, dtSeconds);
+      const behavior = this.behaviorSystem.update(behaviorContext);
 
-      // Separation from player
-      this.applySeparation(enemy, playerPos, config.hitboxRadius);
+      // Update enemy state
+      enemy.state = behavior.newState;
+      enemy.tacticalState = behavior.newState;
+
+      // Get movement direction
+      let moveDir: Vec2 | null = behavior.moveDirection;
+
+      // For non-ranged enemies in certain states, use legacy A* pathfinding
+      if (!isRanged && (enemy.state === 'chasing' || enemy.state === 'engage' || enemy.state === 'melee')) {
+        moveDir = this.ai.getMovementDirection(enemy, playerPos, enemies.values());
+      }
+
+      // Apply movement if we have a direction
+      if (moveDir && (Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.y) > 0.01)) {
+        const speed = config.speed * getEnemySpeedMultiplier(waveNumber);
+        this.applyMovement(enemy, moveDir, speed, dtSeconds);
+      }
+
+      // Separation from player (only for melee enemies getting close)
+      if (!isRanged) {
+        this.applySeparation(enemy, playerPos, config.hitboxRadius);
+      }
 
       // Update spatial hash
       this.spatialHash.update({
@@ -138,30 +190,38 @@ export class EnemyManager {
         radius: config.hitboxRadius,
       });
 
-      // Calculate distance and update state
-      const finalDist = distance(
-        { x: enemy.position.x, y: enemy.position.z },
-        playerPos2D
-      );
+      // Calculate distance
+      const enemyPos2D: Vec2 = { x: enemy.position.x, y: enemy.position.z };
+      const finalDist = distance(enemyPos2D, playerPos2D);
 
       // Update rotation
-      this.updateRotation(enemy, moveDir, playerPos, finalDist, config.attackRange);
+      if (moveDir) {
+        this.updateRotation(enemy, moveDir, playerPos, finalDist, config.attackRange);
+      } else if (behavior.targetPosition) {
+        // Face the target
+        enemy.rotation = angleBetween(enemyPos2D, behavior.targetPosition);
+      }
 
-      // Check if in attack range
+      // Handle shooting for ranged enemies
+      if (behavior.shouldShoot && isRanged) {
+        const shootResult = this.weaponSystem.shoot(enemy, playerPos2D, now);
+        if (shootResult.projectile) {
+          enemyProjectiles.push(shootResult.projectile);
+        }
+      }
+
+      // Check if in melee attack range (for melee enemies or close-range ranged)
       const minSeparation = PLAYER_HITBOX_RADIUS + config.hitboxRadius;
-      const effectiveAttackRange = Math.max(config.attackRange, minSeparation + 0.1);
+      const meleeRange = isRanged ? 1.5 : Math.max(config.attackRange, minSeparation + 0.1);
 
-      if (finalDist < effectiveAttackRange) {
-        enemy.state = 'attacking';
+      if (finalDist < meleeRange && enemy.state === 'attacking') {
         attackingEnemies.push(enemy);
-      } else {
-        enemy.state = 'chasing';
       }
 
       this.callbacks.onEnemyMoved?.(enemy);
     }
 
-    return { attackingEnemies };
+    return { attackingEnemies, enemyProjectiles };
   }
 
   /**
@@ -273,6 +333,29 @@ export class EnemyManager {
    */
   removeEnemy(enemyId: string): void {
     this.spatialHash.remove(enemyId);
+    this.weaponSystem.removeEnemy(enemyId);
+    this.behaviorSystem.getCoverSystem().releaseCover(enemyId);
+  }
+
+  /**
+   * Register a noise event (for detection system)
+   */
+  registerNoise(position: Vec2, type: 'gunshot' | 'footstep' | 'explosion'): void {
+    this.behaviorSystem.registerNoise(position, type);
+  }
+
+  /**
+   * Get the behavior system (for debug/visualization)
+   */
+  getBehaviorSystem(): BehaviorStateMachine {
+    return this.behaviorSystem;
+  }
+
+  /**
+   * Get the weapon system
+   */
+  getWeaponSystem(): EnemyWeaponSystem {
+    return this.weaponSystem;
   }
 
   /**

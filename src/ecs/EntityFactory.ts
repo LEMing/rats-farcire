@@ -242,21 +242,41 @@ export class EntityFactory {
     const group = new THREE.Group();
 
     // === CULT RAT MODEL ===
-    // Colors based on enemy type
-    let furColor = 0x554433; // Brown fur
-    let robeColor = 0x442222; // Dark red cult robe
-    let eyeColor = 0xff0000; // Evil red eyes
+    // Colors based on enemy type - each type has unique robe color
+    let furColor = 0x554433; // Brown fur (default)
+    let robeColor = 0x442222; // Dark red cult robe (default/grunt)
+    let eyeColor = 0xff0000; // Evil red eyes (default)
 
     switch (state.enemyType) {
+      case 'grunt':
+        furColor = 0x554433; // Brown fur
+        robeColor = 0x662222; // Red robe
+        eyeColor = 0xff0000; // Red eyes
+        break;
       case 'runner':
         furColor = 0x665544; // Lighter brown
-        robeColor = 0x553322; // Orange-ish robe
+        robeColor = 0x664422; // Orange robe
         eyeColor = 0xff6600; // Orange eyes
         break;
       case 'tank':
         furColor = 0x333322; // Dark grey-brown
-        robeColor = 0x330011; // Deep crimson robe
+        robeColor = 0x441111; // Deep crimson robe
         eyeColor = 0xff0044; // Bright red eyes
+        break;
+      case 'gunner':
+        furColor = 0x444455; // Grey-blue fur
+        robeColor = 0x223366; // Blue military robe
+        eyeColor = 0x4488ff; // Blue eyes
+        break;
+      case 'sniper':
+        furColor = 0x443355; // Purple-grey fur
+        robeColor = 0x442266; // Purple robe
+        eyeColor = 0x8844ff; // Purple eyes
+        break;
+      case 'hunter':
+        furColor = 0x334444; // Dark teal fur
+        robeColor = 0x1a5f4f; // Teal/green elite robe
+        eyeColor = 0x00ffaa; // Bright teal eyes
         break;
     }
 
@@ -422,10 +442,20 @@ export class EntityFactory {
     group.add(weaponGroup);
 
     // Scale based on type
-    if (state.enemyType === 'tank') {
-      group.scale.setScalar(1.4);
-    } else if (state.enemyType === 'runner') {
-      group.scale.setScalar(0.75);
+    switch (state.enemyType) {
+      case 'tank':
+        group.scale.setScalar(1.4); // Big and heavy
+        break;
+      case 'runner':
+        group.scale.setScalar(0.75); // Small and fast
+        break;
+      case 'sniper':
+        group.scale.setScalar(0.85); // Lean
+        break;
+      case 'hunter':
+        group.scale.setScalar(1.1); // Slightly larger elite
+        break;
+      // gunner and grunt use default scale (1.0)
     }
 
     // Speech bubble with cult symbol

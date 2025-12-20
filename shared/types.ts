@@ -71,17 +71,41 @@ export interface PlayerState extends Entity {
   carryingCellId: string | null;
 }
 
+// Tactical AI behavior states
+export type TacticalState =
+  | 'patrol'     // Walking waypoints, scanning for player
+  | 'alert'      // Noticed something, investigating
+  | 'engage'     // Actively fighting
+  | 'cover'      // Behind cover, peeking to shoot
+  | 'advance'    // Moving to better position
+  | 'flank'      // Circling around player
+  | 'retreat'    // Low health, falling back
+  | 'melee'      // Close range attack
+  | 'idle'       // Not doing anything
+  | 'chasing'    // Legacy: direct chase
+  | 'attacking'  // Legacy: in melee range
+  | 'dead';      // Dead
+
 export interface EnemyState extends Entity {
   type: 'enemy';
   health: number;
   maxHealth: number;
   enemyType: EnemyType;
   targetId: string | null;
-  state: 'idle' | 'chasing' | 'attacking' | 'dead';
+  state: TacticalState;
   knockbackVelocity: Vec2;
+  // Tactical AI fields
+  tacticalState?: TacticalState;
+  detectionLevel?: number;        // 0-1, how aware of player
+  lastKnownPlayerPos?: Vec2;      // Where player was last seen
+  coverPointId?: string;          // Current cover point being used
+  patrolWaypointIndex?: number;   // Current patrol waypoint
+  lastShotTime?: number;          // For ranged attack cooldown
+  isReloading?: boolean;          // Currently reloading weapon
+  alertedBy?: string;             // ID of enemy that alerted this one
 }
 
-export type EnemyType = 'grunt' | 'runner' | 'tank';
+export type EnemyType = 'grunt' | 'runner' | 'tank' | 'gunner' | 'sniper' | 'hunter';
 
 export interface ProjectileState extends Entity {
   type: 'projectile';

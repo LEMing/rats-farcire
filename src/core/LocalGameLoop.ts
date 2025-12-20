@@ -11,6 +11,7 @@ import type {
 import {
   PLAYER_MAX_HEALTH,
   PLAYER_START_AMMO,
+  PLAYER_HITBOX_RADIUS,
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
   TILE_SIZE,
@@ -448,6 +449,12 @@ export class LocalGameLoop {
           this.entities.createProjectile(projectile);
         }
 
+        // Register gunshot noise for enemy detection system
+        this.enemyManager.registerNoise(
+          { x: this.player.position.x, y: this.player.position.z },
+          'gunshot'
+        );
+
         // Screen shake
         this.renderer.addScreenShake(shootResult.screenShake);
         this.eventBus.emit('screenShake', { intensity: shootResult.screenShake });
@@ -635,41 +642,63 @@ export class LocalGameLoop {
       this.applyBarrelExplosion(explosion);
     }
 
-    // Check enemy collision for remaining projectiles
+    // Check projectile collisions
     for (const [id, proj] of this.projectiles) {
       // Skip projectiles already marked for removal
       if (physicsResult.toRemove.includes(id)) continue;
 
-      // Check enemy collision using spatial hash (O(1) instead of O(n))
-      const nearbyEnemies = this.enemyManager.getNearbyEnemies(
-        proj.position.x,
-        proj.position.z,
-        PROJECTILE_HITBOX_RADIUS + 2
-      );
+      // Check if this is an enemy projectile (hits player)
+      const isEnemyProjectile = this.enemies.has(proj.ownerId);
 
-      for (const spatialEnemy of nearbyEnemies) {
-        const enemy = this.enemies.get(spatialEnemy.id);
-        if (!enemy || enemy.state === 'dead') continue;
-
-        const config = ENEMY_CONFIGS[enemy.enemyType];
+      if (isEnemyProjectile && this.player && !this.player.isDead) {
+        // Enemy projectile - check collision with player
         if (
           circleCollision(
             { x: proj.position.x, y: proj.position.z },
             PROJECTILE_HITBOX_RADIUS,
-            { x: enemy.position.x, y: enemy.position.z },
-            config.hitboxRadius
+            { x: this.player.position.x, y: this.player.position.z },
+            PLAYER_HITBOX_RADIUS
           )
         ) {
-          this.handleProjectileHit(proj, enemy);
-
-          // Rocket explodes on hit
-          const explosionPos = this.projectileManager.markForRemoval(id, this.projectiles);
-          if (explosionPos) {
-            rocketExplosions.push(explosionPos);
+          // Skip if player is dashing with iframes
+          if (!(this.player.isDashing && DASH_IFRAMES)) {
+            this.handleEnemyProjectileHit(proj);
           }
-
           toRemove.push(id);
-          break;
+          continue;
+        }
+      } else {
+        // Player projectile - check enemy collision using spatial hash
+        const nearbyEnemies = this.enemyManager.getNearbyEnemies(
+          proj.position.x,
+          proj.position.z,
+          PROJECTILE_HITBOX_RADIUS + 2
+        );
+
+        for (const spatialEnemy of nearbyEnemies) {
+          const enemy = this.enemies.get(spatialEnemy.id);
+          if (!enemy || enemy.state === 'dead') continue;
+
+          const config = ENEMY_CONFIGS[enemy.enemyType];
+          if (
+            circleCollision(
+              { x: proj.position.x, y: proj.position.z },
+              PROJECTILE_HITBOX_RADIUS,
+              { x: enemy.position.x, y: enemy.position.z },
+              config.hitboxRadius
+            )
+          ) {
+            this.handleProjectileHit(proj, enemy);
+
+            // Rocket explodes on hit
+            const explosionPos = this.projectileManager.markForRemoval(id, this.projectiles);
+            if (explosionPos) {
+              rocketExplosions.push(explosionPos);
+            }
+
+            toRemove.push(id);
+            break;
+          }
         }
       }
 
@@ -738,6 +767,46 @@ export class LocalGameLoop {
 
     if (enemy.health <= 0) {
       this.killEnemy(enemyId);
+    }
+  }
+
+  /**
+   * Handle enemy projectile hitting the player
+   */
+  private handleEnemyProjectileHit(proj: ProjectileState): void {
+    if (!this.player) return;
+
+    // Shield power-up reduces damage
+    const hasShield = this.player.powerUps.shield && this.player.powerUps.shield > this.gameTime;
+    const damageMultiplier = hasShield ? POWERUP_CONFIGS.shield.damageReduction : 1;
+    const damage = proj.damage * damageMultiplier;
+
+    this.player.health -= damage;
+
+    // Spawn damage number on player
+    const screenPos = this.renderer.worldToScreen(this.player.position);
+    this.ui.spawnDamageNumber(screenPos.x, screenPos.y, Math.floor(damage), false);
+
+    // Trigger damage vignette
+    this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+
+    // Screen shake
+    this.renderer.addScreenShake(0.3);
+
+    // Emit player hit event
+    this.eventBus.emit('playerHit', {
+      position: { ...this.player.position },
+      damage,
+      health: this.player.health,
+    });
+
+    // Check for player death or Last Stand trigger
+    if (this.player.health <= 0 && !this.player.isDead && !this.lastStandSystem.isActive()) {
+      if (this.lastStandSystem.tryTrigger(this.gameTime)) {
+        this.player.health = 1;
+      } else {
+        this.handlePlayerDeath();
+      }
     }
   }
 
@@ -1023,7 +1092,19 @@ export class LocalGameLoop {
       dt
     );
 
-    // Handle attacking enemies - apply damage to player
+    // Handle enemy projectiles - add to game and register noise
+    for (const projectile of result.enemyProjectiles) {
+      this.projectiles.set(projectile.id, projectile);
+      this.entities.createProjectile(projectile);
+
+      // Register gunshot noise for detection system
+      this.enemyManager.registerNoise(
+        { x: projectile.position.x, y: projectile.position.z },
+        'gunshot'
+      );
+    }
+
+    // Handle attacking enemies - apply melee damage to player
     for (const enemy of result.attackingEnemies) {
       // Skip if player is dashing with iframes
       if (this.player.isDashing && DASH_IFRAMES) continue;
