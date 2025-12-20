@@ -12,6 +12,7 @@ import type { Vec3, ProjectileState, BarrelState } from '@shared/types';
 // ============================================================================
 
 export interface ExplosionResult {
+  barrelId: string;
   position: Vec3;
   radius: number;
   damage: number;
@@ -134,6 +135,7 @@ export class BarrelManager {
     barrel.isExploding = true;
 
     const result: ExplosionResult = {
+      barrelId,
       position: { ...barrel.position },
       radius: this.config.explosionRadius,
       damage: this.config.enemyDamage,

@@ -626,11 +626,8 @@ export class LocalGameLoop {
     const chainExplosions = this.barrelManager.update(this.gameTime);
     for (const explosion of chainExplosions) {
       barrelExplosions.push(explosion);
-      // Find the barrel ID from chain triggered list (the barrel that just exploded is removed already)
-      // The chain explosion callback already handled the visual, just need to remove render
-      for (const triggeredId of explosion.chainTriggeredBarrelIds) {
-        this.renderer.getMapRenderer().removeExplosiveBarrel(triggeredId);
-      }
+      // Remove the barrel that just exploded from the renderer
+      this.renderer.getMapRenderer().removeExplosiveBarrel(explosion.barrelId);
     }
 
     // Apply barrel explosions

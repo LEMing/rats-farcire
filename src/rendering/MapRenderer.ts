@@ -3,6 +3,8 @@ import type { MapData, Vec3, Room } from '@shared/types';
 import { TILE_SIZE, COLORS } from '@shared/constants';
 import { TardisFactory, TardisInstance } from './TardisFactory';
 import { MapDecorations } from './MapDecorations';
+import { Zone, getZoneForRoomType } from './ZoneConfig';
+import { getTextureManager } from './TextureManager';
 
 /**
  * MapRenderer - Handles all map-related rendering
@@ -86,20 +88,99 @@ export class MapRenderer {
     const debrisGeom = this.deps.getGeometry('debris')!;
     const puddleGeom = this.deps.getGeometry('puddle')!;
 
-    const floorMat = this.deps.getMaterial('floor')!;
-    const wallBaseMat = this.deps.getMaterial('wall')! as THREE.MeshLambertMaterial;
     const debrisMat = this.deps.getMaterial('debris')!;
     const puddleMat = this.deps.getMaterial('puddle')!;
 
-    // Use instanced mesh for floor (performance)
-    const floorCount = mapData.tiles.flat().filter((t) => t.type === 'floor').length;
-    const floorInstanced = new THREE.InstancedMesh(floorGeom, floorMat, floorCount);
-    floorInstanced.receiveShadow = true;
-    floorInstanced.userData.mapObject = true;
+    // Get texture manager for zone-specific materials
+    const textureManager = getTextureManager();
 
-    let floorIndex = 0;
+    // ========================================================================
+    // ZONE-AWARE FLOOR RENDERING
+    // First pass: Identify floor tiles, zones, and transitions
+    // ========================================================================
+    interface FloorTileInfo {
+      x: number;
+      y: number;
+      zone: Zone;
+      adjacentZone: Zone | null; // If set, this is a transition tile
+    }
+
+    const floorTiles: FloorTileInfo[] = [];
+    const zoneFloorCounts: Record<Zone, number> = {
+      industrial: 0,
+      ritual: 0,
+      organic: 0,
+      neutral: 0,
+    };
+
+    // Collect floor tiles and identify transitions
+    for (let y = 0; y < mapData.height; y++) {
+      for (let x = 0; x < mapData.width; x++) {
+        const tile = mapData.tiles[y][x];
+        if (tile.type === 'floor' || tile.type === 'puddle') {
+          const zone = this.getZoneForTile(x, y, mapData.rooms, mapData);
+          const adjacentZone = this.getAdjacentZone(x, y, zone, mapData.rooms, mapData);
+
+          floorTiles.push({ x, y, zone, adjacentZone });
+
+          // Only count non-transition tiles for instanced meshes
+          if (!adjacentZone) {
+            zoneFloorCounts[zone]++;
+          }
+        }
+      }
+    }
+
+    // Create instanced meshes for each zone (only for non-transition tiles)
+    const zoneFloorMeshes: Partial<Record<Zone, THREE.InstancedMesh>> = {};
+    const zoneFloorIndices: Record<Zone, number> = {
+      industrial: 0,
+      ritual: 0,
+      organic: 0,
+      neutral: 0,
+    };
+
+    for (const zone of ['industrial', 'ritual', 'organic', 'neutral'] as Zone[]) {
+      if (zoneFloorCounts[zone] > 0) {
+        const zoneMaterial = textureManager.getFloorMaterial(zone);
+        const instanced = new THREE.InstancedMesh(
+          floorGeom,
+          zoneMaterial,
+          zoneFloorCounts[zone]
+        );
+        instanced.receiveShadow = true;
+        instanced.userData.mapObject = true;
+        instanced.userData.zone = zone;
+        zoneFloorMeshes[zone] = instanced;
+      }
+    }
+
     const matrix = new THREE.Matrix4();
 
+    // Create transition floor tiles as individual meshes with blended colors
+    for (const tileInfo of floorTiles) {
+      if (tileInfo.adjacentZone) {
+        const worldX = tileInfo.x * TILE_SIZE;
+        const worldZ = tileInfo.y * TILE_SIZE;
+
+        // Use 50% blend for transition tiles
+        const transitionMat = textureManager.getTransitionFloorMaterial(
+          tileInfo.zone,
+          tileInfo.adjacentZone,
+          0.5
+        );
+
+        const transitionFloor = new THREE.Mesh(floorGeom, transitionMat);
+        transitionFloor.position.set(worldX, 0, worldZ);
+        transitionFloor.receiveShadow = true;
+        transitionFloor.userData.mapObject = true;
+        this.deps.scene.add(transitionFloor);
+      }
+    }
+
+    // ========================================================================
+    // BUILD MAP TILES
+    // ========================================================================
     for (let y = 0; y < mapData.height; y++) {
       for (let x = 0; x < mapData.width; x++) {
         const tile = mapData.tiles[y][x];
@@ -107,8 +188,18 @@ export class MapRenderer {
         const worldZ = y * TILE_SIZE;
 
         if (tile.type === 'floor') {
-          matrix.setPosition(worldX, 0, worldZ);
-          floorInstanced.setMatrixAt(floorIndex++, matrix);
+          // Check if this is a transition tile (already handled)
+          const zone = this.getZoneForTile(x, y, mapData.rooms, mapData);
+          const adjacentZone = this.getAdjacentZone(x, y, zone, mapData.rooms, mapData);
+
+          // Only add to instanced mesh if NOT a transition tile
+          if (!adjacentZone) {
+            const instanced = zoneFloorMeshes[zone];
+            if (instanced) {
+              matrix.setPosition(worldX, 0, worldZ);
+              instanced.setMatrixAt(zoneFloorIndices[zone]++, matrix);
+            }
+          }
 
           // Add debris decorations
           if (Math.random() < 0.05) {
@@ -128,8 +219,9 @@ export class MapRenderer {
             this.addFloorSymbol(worldX, worldZ);
           }
         } else if (tile.type === 'wall') {
-          // Create individual wall mesh
-          const wallMat = wallBaseMat.clone();
+          // Get zone-specific wall material
+          const zone = this.getZoneForTile(x, y, mapData.rooms, mapData);
+          const wallMat = textureManager.getWallMaterialClone(zone);
 
           const wallMesh = new THREE.Mesh(wallGeom, wallMat);
           const baseY = TILE_SIZE / 2;
@@ -182,9 +274,17 @@ export class MapRenderer {
             }
           }
         } else if (tile.type === 'puddle') {
-          // Floor under puddle
-          matrix.setPosition(worldX, 0, worldZ);
-          floorInstanced.setMatrixAt(floorIndex++, matrix);
+          // Floor under puddle - add to zone-specific mesh (skip if transition)
+          const zone = this.getZoneForTile(x, y, mapData.rooms, mapData);
+          const adjacentZone = this.getAdjacentZone(x, y, zone, mapData.rooms, mapData);
+
+          if (!adjacentZone) {
+            const instanced = zoneFloorMeshes[zone];
+            if (instanced) {
+              matrix.setPosition(worldX, 0, worldZ);
+              instanced.setMatrixAt(zoneFloorIndices[zone]++, matrix);
+            }
+          }
 
           const puddle = new THREE.Mesh(puddleGeom, puddleMat);
           puddle.position.set(worldX, 0.06, worldZ);
@@ -194,8 +294,13 @@ export class MapRenderer {
       }
     }
 
-    floorInstanced.instanceMatrix.needsUpdate = true;
-    this.deps.scene.add(floorInstanced);
+    // Add all zone floor meshes to scene
+    for (const instanced of Object.values(zoneFloorMeshes)) {
+      if (instanced) {
+        instanced.instanceMatrix.needsUpdate = true;
+        this.deps.scene.add(instanced);
+      }
+    }
 
     // Create cult altars
     for (const pos of mapData.altarPositions) {
@@ -256,28 +361,76 @@ export class MapRenderer {
   }
 
   /**
-   * Get wall direction for a corridor tile (which side has a wall)
+   * Get the room at a tile position (null if corridor)
    */
-  private getAdjacentWallDirection(x: number, y: number, tiles: MapData['tiles']): { direction: 'x' | 'z'; sign: number } | null {
-    const directions: { dx: number; dy: number; direction: 'x' | 'z'; sign: number }[] = [
-      { dx: -1, dy: 0, direction: 'x', sign: -1 },
-      { dx: 1, dy: 0, direction: 'x', sign: 1 },
-      { dx: 0, dy: -1, direction: 'z', sign: -1 },
-      { dx: 0, dy: 1, direction: 'z', sign: 1 },
-    ];
-
-    for (const dir of directions) {
-      const nx = x + dir.dx;
-      const ny = y + dir.dy;
-      if (tiles[ny]?.[nx]?.type === 'wall') {
-        return { direction: dir.direction, sign: dir.sign };
+  private getRoomAtTile(x: number, y: number, rooms: Room[]): Room | null {
+    for (const room of rooms) {
+      if (x >= room.x && x < room.x + room.width &&
+          y >= room.y && y < room.y + room.height) {
+        return room;
       }
     }
     return null;
   }
 
   /**
-   * Decorate corridor tiles with torches, debris, and puddles
+   * Get the zone for a tile position
+   * Rooms use their room type's zone, corridors use adjacent room's zone or 'organic' fallback
+   */
+  private getZoneForTile(x: number, y: number, rooms: Room[], _mapData: MapData): Zone {
+    const room = this.getRoomAtTile(x, y, rooms);
+    if (room) {
+      return getZoneForRoomType(room.roomType);
+    }
+
+    // Corridor tile - check adjacent tiles for nearby rooms
+    const directions = [
+      { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
+    ];
+
+    for (const dir of directions) {
+      const adjRoom = this.getRoomAtTile(x + dir.dx, y + dir.dy, rooms);
+      if (adjRoom) {
+        return getZoneForRoomType(adjRoom.roomType);
+      }
+    }
+
+    // Default corridor zone
+    return 'organic';
+  }
+
+  /**
+   * Check if a tile is at a zone boundary (adjacent to a different zone)
+   * Returns the adjacent zone if it's different, null otherwise
+   */
+  private getAdjacentZone(x: number, y: number, currentZone: Zone, rooms: Room[], mapData: MapData): Zone | null {
+    const directions = [
+      { dx: 1, dy: 0 }, { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 }, { dx: 0, dy: -1 },
+    ];
+
+    for (const dir of directions) {
+      const nx = x + dir.dx;
+      const ny = y + dir.dy;
+
+      // Check bounds and if it's a floor tile
+      if (nx >= 0 && nx < mapData.width && ny >= 0 && ny < mapData.height) {
+        const adjTile = mapData.tiles[ny]?.[nx];
+        if (adjTile && (adjTile.type === 'floor' || adjTile.type === 'puddle')) {
+          const adjZone = this.getZoneForTile(nx, ny, rooms, mapData);
+          if (adjZone !== currentZone) {
+            return adjZone;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Decorate corridor tiles with debris and puddles
    */
   private decorateCorridors(mapData: MapData): void {
     const corridorTiles: { x: number; y: number }[] = [];
@@ -288,25 +441,6 @@ export class MapRenderer {
         const tile = mapData.tiles[y]?.[x];
         if (tile && tile.walkable && !this.isInsideRoom(x, y, mapData.rooms)) {
           corridorTiles.push({ x, y });
-        }
-      }
-    }
-
-    // Place wall torches at regular intervals along corridors
-    let torchCounter = 0;
-    for (const tile of corridorTiles) {
-      torchCounter++;
-      // Place torch every ~8 tiles
-      if (torchCounter % 8 === 0) {
-        const wallDir = this.getAdjacentWallDirection(tile.x, tile.y, mapData.tiles);
-        if (wallDir) {
-          const torch = MapDecorations.createWallTorch(
-            tile.x * TILE_SIZE,
-            tile.y * TILE_SIZE,
-            wallDir.direction,
-            wallDir.sign
-          );
-          this.deps.scene.add(torch);
         }
       }
     }
@@ -399,10 +533,7 @@ export class MapRenderer {
     }
   }
 
-  private decorateSpawnRoom(room: Room, mapData: MapData): void {
-    // Spawn room is well-lit and relatively clean
-    this.addWallTorchesToRoom(room, mapData, 4);
-
+  private decorateSpawnRoom(room: Room, _mapData: MapData): void {
     // A few crates in corners for cover
     const cornerPositions = this.getRoomEdgePositions(room, 1.5);
     for (const pos of cornerPositions) {
@@ -420,10 +551,7 @@ export class MapRenderer {
     }
   }
 
-  private decorateTardisRoom(room: Room, mapData: MapData): void {
-    // Wall torches for lighting
-    this.addWallTorchesToRoom(room, mapData, 4);
-
+  private decorateTardisRoom(room: Room, _mapData: MapData): void {
     // Add candle clusters around the room edges
     const positions = this.getRoomEdgePositions(room, 2);
     for (const pos of positions) {
@@ -442,10 +570,7 @@ export class MapRenderer {
     }
   }
 
-  private decorateCellRoom(room: Room, mapData: MapData): void {
-    // Wall torches for lighting
-    this.addWallTorchesToRoom(room, mapData, 3);
-
+  private decorateCellRoom(room: Room, _mapData: MapData): void {
     // Tech debris scattered around - increased density
     const debrisCount = 4 + Math.floor(Math.random() * 3);
     const positions = this.getRandomRoomPositions(room, debrisCount);
@@ -463,10 +588,7 @@ export class MapRenderer {
     }
   }
 
-  private decorateGrinderRoom(room: Room, centerX: number, centerZ: number, mapData: MapData): void {
-    // Wall lamps for industrial lighting
-    this.addWallTorchesToRoom(room, mapData, 4);
-
+  private decorateGrinderRoom(room: Room, centerX: number, centerZ: number, _mapData: MapData): void {
     // Centerpiece: Meat grinder
     const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
     this.deps.scene.add(grinder);
@@ -512,19 +634,24 @@ export class MapRenderer {
       }
     }
 
-    // Debris clusters
+    // Metal debris clusters (industrial zone)
     const debrisCount = 3 + Math.floor(Math.random() * 2);
     for (let i = 0; i < debrisCount; i++) {
       const pos = this.getRandomRoomPosition(room);
-      const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
+      const debris = MapDecorations.createMetalDebris(pos.x, pos.z);
       this.deps.scene.add(debris);
+    }
+
+    // Industrial lamps (industrial zone)
+    const lampCount = 1 + Math.floor(Math.random() * 2);
+    const lampPositions = this.getRandomRoomPositions(room, lampCount);
+    for (const pos of lampPositions) {
+      const lamp = MapDecorations.createIndustrialLamp(pos.x, pos.z);
+      this.deps.scene.add(lamp);
     }
   }
 
   private decorateStorageRoom(room: Room, mapData: MapData): void {
-    // Wall torches
-    this.addWallTorchesToRoom(room, mapData, 2);
-
     // Crate stacks as focal points - more stacks
     const stackCount = room.width >= 6 ? 3 : 2;
     const stackPositions = this.getRandomRoomPositions(room, stackCount, 2);
@@ -541,18 +668,54 @@ export class MapRenderer {
       this.deps.scene.add(crate);
     }
 
-    // Some debris on the floor
-    const debrisPositions = this.getRandomRoomPositions(room, 2);
+    // Metal debris on the floor (industrial zone)
+    const debrisPositions = this.getRandomRoomPositions(room, 3);
     for (const pos of debrisPositions) {
-      const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
+      const debris = MapDecorations.createMetalDebris(pos.x, pos.z);
       this.deps.scene.add(debris);
+    }
+
+    // Industrial lamps
+    if (Math.random() < 0.7) {
+      const lampPos = this.getRandomRoomPosition(room);
+      const lamp = MapDecorations.createIndustrialLamp(lampPos.x, lampPos.z);
+      this.deps.scene.add(lamp);
+    }
+
+    // Wall pipes (industrial zone)
+    this.addIndustrialPipesToRoom(room, mapData);
+  }
+
+  /**
+   * Add industrial pipes along walls
+   */
+  private addIndustrialPipesToRoom(room: Room, mapData: MapData): void {
+    // Find walls and add pipes
+    const pipeChance = 0.15;
+
+    for (let y = room.y; y < room.y + room.height; y++) {
+      for (let x = room.x; x < room.x + room.width; x++) {
+        if (mapData.tiles[y]?.[x]?.type !== 'floor') continue;
+        if (Math.random() > pipeChance) continue;
+
+        const worldX = x * TILE_SIZE;
+        const worldZ = y * TILE_SIZE;
+
+        const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
+        const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
+
+        if (hasWallRight) {
+          const pipe = MapDecorations.createWallPipe(worldX + TILE_SIZE * 0.4, worldZ, 'z', 2);
+          this.deps.scene.add(pipe);
+        } else if (hasWallUp) {
+          const pipe = MapDecorations.createWallPipe(worldX, worldZ - TILE_SIZE * 0.4, 'x', 2);
+          this.deps.scene.add(pipe);
+        }
+      }
     }
   }
 
   private decorateNestRoom(room: Room, mapData: MapData): void {
-    // Minimal lamps - nests are dark
-    this.addWallTorchesToRoom(room, mapData, 2);
-
     // Bone piles - very dense in nest rooms
     const boneCount = 6 + Math.floor(Math.random() * 4);
     const bonePositions = this.getRandomRoomPositions(room, boneCount);
@@ -569,12 +732,20 @@ export class MapRenderer {
       this.deps.scene.add(debris);
     }
 
-    // Scattered small debris everywhere
-    const smallDebrisCount = 6 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < smallDebrisCount; i++) {
-      const pos = this.getRandomRoomPosition(room);
-      const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
-      this.deps.scene.add(debris);
+    // Mushroom clusters (organic zone)
+    const mushroomCount = 2 + Math.floor(Math.random() * 3);
+    const mushroomPositions = this.getRandomRoomPositions(room, mushroomCount);
+    for (const pos of mushroomPositions) {
+      const mushrooms = MapDecorations.createMushroomCluster(pos.x, pos.z);
+      this.deps.scene.add(mushrooms);
+    }
+
+    // Egg sacs (organic zone)
+    const eggCount = 1 + Math.floor(Math.random() * 2);
+    const eggPositions = this.getRandomRoomPositions(room, eggCount);
+    for (const pos of eggPositions) {
+      const egg = MapDecorations.createEggSac(pos.x, pos.z);
+      this.deps.scene.add(egg);
     }
 
     // Some broken crates/barrels
@@ -601,12 +772,48 @@ export class MapRenderer {
 
     // Rat holes on walls - many holes
     this.addRatHolesToRoom(room, mapData, 0.25);
+
+    // Wall vines (organic zone)
+    this.addOrganicVinesToRoom(room, mapData);
   }
 
-  private decorateShrineRoom(room: Room, centerX: number, centerZ: number, mapData: MapData): void {
-    // Wall torches for atmospheric lighting
-    this.addWallTorchesToRoom(room, mapData, 2);
+  /**
+   * Add organic vines to walls
+   */
+  private addOrganicVinesToRoom(room: Room, mapData: MapData): void {
+    const vineChance = 0.12;
 
+    for (let y = room.y; y < room.y + room.height; y++) {
+      for (let x = room.x; x < room.x + room.width; x++) {
+        if (mapData.tiles[y]?.[x]?.type !== 'floor') continue;
+        if (Math.random() > vineChance) continue;
+
+        const worldX = x * TILE_SIZE;
+        const worldZ = y * TILE_SIZE;
+
+        const hasWallRight = x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall';
+        const hasWallLeft = x > 0 && mapData.tiles[y][x - 1]?.type === 'wall';
+        const hasWallDown = y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall';
+        const hasWallUp = y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall';
+
+        if (hasWallRight) {
+          const vines = MapDecorations.createWallVines(worldX, worldZ, 'x', 1);
+          this.deps.scene.add(vines);
+        } else if (hasWallLeft) {
+          const vines = MapDecorations.createWallVines(worldX, worldZ, 'x', -1);
+          this.deps.scene.add(vines);
+        } else if (hasWallDown) {
+          const vines = MapDecorations.createWallVines(worldX, worldZ, 'z', 1);
+          this.deps.scene.add(vines);
+        } else if (hasWallUp) {
+          const vines = MapDecorations.createWallVines(worldX, worldZ, 'z', -1);
+          this.deps.scene.add(vines);
+        }
+      }
+    }
+  }
+
+  private decorateShrineRoom(room: Room, centerX: number, centerZ: number, _mapData: MapData): void {
     // Central ritual circle
     const circle = MapDecorations.createRitualCircle(centerX, centerZ);
     this.deps.scene.add(circle);
@@ -620,6 +827,26 @@ export class MapRenderer {
         centerZ + Math.sin(angle) * dist
       );
       this.deps.scene.add(candles);
+    }
+
+    // Crystal clusters (ritual zone)
+    const crystalCount = 2 + Math.floor(Math.random() * 2);
+    const crystalPositions = this.getRandomRoomPositions(room, crystalCount);
+    for (const pos of crystalPositions) {
+      const crystal = MapDecorations.createCrystalCluster(pos.x, pos.z);
+      this.deps.scene.add(crystal);
+    }
+
+    // Arcane floor symbols (ritual zone)
+    const symbolCount = 1 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < symbolCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 2.5 + Math.random() * 1;
+      const symbol = MapDecorations.createArcaneSymbol(
+        centerX + Math.cos(angle) * dist,
+        centerZ + Math.sin(angle) * dist
+      );
+      this.deps.scene.add(symbol);
     }
 
     // Bone offerings
@@ -644,9 +871,6 @@ export class MapRenderer {
   }
 
   private decorateNormalRoom(room: Room, mapData: MapData): void {
-    // Wall lamps for basic lighting
-    this.addWallTorchesToRoom(room, mapData, 3);
-
     // Random decorations - more dense
     const decorCount = 5 + Math.floor(Math.random() * 4);
     const positions = this.getRandomRoomPositions(room, decorCount);
@@ -773,59 +997,6 @@ export class MapRenderer {
           const hole = MapDecorations.createRatHole(worldX, worldZ - TILE_SIZE, 'z', 1);
           this.deps.scene.add(hole);
         }
-      }
-    }
-  }
-
-  /**
-   * Add wall torches to a room (on corners/edges near walls)
-   */
-  private addWallTorchesToRoom(room: Room, mapData: MapData, count: number = 2): void {
-    // Find wall-adjacent positions in the room
-    const wallPositions: { x: number; y: number; dir: 'x' | 'z'; sign: number }[] = [];
-
-    for (let y = room.y; y < room.y + room.height; y++) {
-      for (let x = room.x; x < room.x + room.width; x++) {
-        if (mapData.tiles[y]?.[x]?.type !== 'floor') continue;
-
-        // Check adjacent walls
-        if (x > 0 && mapData.tiles[y][x - 1]?.type === 'wall') {
-          wallPositions.push({ x, y, dir: 'x', sign: -1 });
-        }
-        if (x < mapData.width - 1 && mapData.tiles[y][x + 1]?.type === 'wall') {
-          wallPositions.push({ x, y, dir: 'x', sign: 1 });
-        }
-        if (y > 0 && mapData.tiles[y - 1]?.[x]?.type === 'wall') {
-          wallPositions.push({ x, y, dir: 'z', sign: -1 });
-        }
-        if (y < mapData.height - 1 && mapData.tiles[y + 1]?.[x]?.type === 'wall') {
-          wallPositions.push({ x, y, dir: 'z', sign: 1 });
-        }
-      }
-    }
-
-    // Shuffle and pick positions spaced apart
-    const shuffled = wallPositions.sort(() => Math.random() - 0.5);
-    const placed: { x: number; y: number }[] = [];
-    const minDist = 3; // Minimum tiles between torches
-
-    for (const pos of shuffled) {
-      if (placed.length >= count) break;
-
-      // Check distance from already placed torches
-      const tooClose = placed.some(p =>
-        Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y) < minDist
-      );
-
-      if (!tooClose) {
-        const torch = MapDecorations.createWallTorch(
-          pos.x * TILE_SIZE,
-          pos.y * TILE_SIZE,
-          pos.dir,
-          pos.sign
-        );
-        this.deps.scene.add(torch);
-        placed.push({ x: pos.x, y: pos.y });
       }
     }
   }

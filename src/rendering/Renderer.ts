@@ -20,6 +20,7 @@ import { TILE_SIZE, COLORS } from '@shared/constants';
 import { BlurredEmblemMaterial } from './BlurredEmblemMaterial';
 import { TargetingLaserMaterial } from './LaserMaterial';
 import { MapRenderer } from './MapRenderer';
+import { ZoneLighting } from './ZoneLighting';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { ThermobaricEffect } from './ThermobaricEffect';
 import { debug } from '../utils/debug';
@@ -60,6 +61,7 @@ export class Renderer {
 
   // Extracted map renderer
   private mapRenderer!: MapRenderer;
+  private zoneLighting!: ZoneLighting;
 
   // Time uniform for animated shaders
   private readonly timeUniform = uniform(0);
@@ -139,6 +141,9 @@ export class Renderer {
         getMaterial: (name) => this.materials.get(name),
         clearDecals: () => this.particleSystem.clearDecals(),
       });
+
+      // Initialize zone lighting
+      this.zoneLighting = new ZoneLighting(this.scene);
 
       this.initialized = true;
       debug.log('WebGPU Renderer initialized');
@@ -349,6 +354,7 @@ export class Renderer {
 
   buildMap(mapData: MapData): void {
     this.mapRenderer.buildMap(mapData);
+    this.zoneLighting.applyZoneAtmosphere(mapData);
   }
 
   // ============================================================================

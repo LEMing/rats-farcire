@@ -708,103 +708,6 @@ export class MapDecorations {
   }
 
   // ============================================================================
-  // Wall Lamp - Industrial electric lamp for corridors/rooms
-  // ============================================================================
-  static createWallTorch(x: number, z: number, wallDirection: 'x' | 'z', sign: number): THREE.Group {
-    this.initCaches();
-    const group = new THREE.Group();
-
-    // Position against wall
-    const offsetX = wallDirection === 'x' ? sign * 0.45 : 0;
-    const offsetZ = wallDirection === 'z' ? sign * 0.45 : 0;
-    group.position.set(x + offsetX, 1.1, z + offsetZ);
-
-    // Rotate to face outward from wall
-    if (wallDirection === 'x') {
-      group.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
-    } else {
-      group.rotation.y = sign > 0 ? Math.PI : 0;
-    }
-
-    const metalMat = this.materialCache.get('metalDark')!;
-    const rustyMat = this.materialCache.get('metalRusty')!;
-
-    // Wall mount plate
-    const mountPlate = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.12, 0.12),
-      metalMat
-    );
-    mountPlate.position.set(0.03, 0, 0);
-    group.add(mountPlate);
-
-    // Angled arm
-    const arm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.04, 0.04, 0.2),
-      rustyMat
-    );
-    arm.position.set(0.15, -0.05, 0);
-    arm.rotation.z = -0.3;
-    group.add(arm);
-
-    // Lamp housing (cage-like industrial fixture)
-    const housingTop = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.1, 0.04, 8),
-      metalMat
-    );
-    housingTop.position.set(0.25, -0.08, 0);
-    group.add(housingTop);
-
-    // Wire cage bars
-    const cageBarMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2;
-      const bar = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.008, 0.008, 0.15, 4),
-        cageBarMat
-      );
-      bar.position.set(
-        0.25 + Math.cos(angle) * 0.07,
-        -0.17,
-        Math.sin(angle) * 0.07
-      );
-      group.add(bar);
-    }
-
-    // Cage bottom ring
-    const cageRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.07, 0.01, 6, 12),
-      cageBarMat
-    );
-    cageRing.position.set(0.25, -0.24, 0);
-    cageRing.rotation.x = Math.PI / 2;
-    group.add(cageRing);
-
-    // Light bulb (glowing)
-    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
-    const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05, 8, 6),
-      bulbMat
-    );
-    bulb.position.set(0.25, -0.15, 0);
-    group.add(bulb);
-
-    // Large glow sprite for warm light effect
-    const glowSprite = this.createGlowSprite(1.8, 0xffdd88, 0.6);
-    glowSprite.position.set(0.25, -0.15, 0);
-    group.add(glowSprite);
-
-    // Secondary smaller brighter glow
-    const innerGlow = this.createGlowSprite(0.8, 0xffffee, 0.7);
-    innerGlow.position.set(0.25, -0.15, 0);
-    group.add(innerGlow);
-
-    group.userData.mapObject = true;
-    group.userData.isWallLamp = true;
-
-    return group;
-  }
-
-  // ============================================================================
   // Small Debris - Single piece for corridors
   // ============================================================================
   static createSmallDebris(x: number, z: number): THREE.Group {
@@ -881,9 +784,425 @@ export class MapDecorations {
   }
 
   // ============================================================================
+  // ZONE-SPECIFIC DECORATIONS - Industrial
+  // ============================================================================
+
+  /**
+   * Industrial wall pipe - horizontal pipe running along wall
+   */
+  static createWallPipe(x: number, z: number, direction: 'x' | 'z', length: number = 3): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const pipeMat = this.materialCache.get('metalRusty')!;
+    const pipeDarkMat = this.materialCache.get('metalDark')!;
+
+    // Main pipe
+    const pipeGeom = new THREE.CylinderGeometry(0.08, 0.08, length, 8);
+    const pipe = new THREE.Mesh(pipeGeom, pipeMat);
+    pipe.rotation.z = Math.PI / 2;
+    if (direction === 'z') pipe.rotation.y = Math.PI / 2;
+    pipe.position.y = 0.6;
+    group.add(pipe);
+
+    // Pipe joints/brackets
+    const bracketGeom = new THREE.TorusGeometry(0.12, 0.03, 6, 12);
+    for (let i = 0; i < length; i += 0.8) {
+      const bracket = new THREE.Mesh(bracketGeom, pipeDarkMat);
+      bracket.position.y = 0.6;
+      if (direction === 'x') {
+        bracket.position.x = -length / 2 + i;
+        bracket.rotation.y = Math.PI / 2;
+      } else {
+        bracket.position.z = -length / 2 + i;
+      }
+      group.add(bracket);
+    }
+
+    // Valve at random position
+    if (Math.random() > 0.5) {
+      const valveGeom = new THREE.CylinderGeometry(0.06, 0.06, 0.15, 6);
+      const valve = new THREE.Mesh(valveGeom, pipeDarkMat);
+      valve.position.y = 0.72;
+      valve.position.x = (Math.random() - 0.5) * length * 0.5;
+      group.add(valve);
+
+      const wheelGeom = new THREE.TorusGeometry(0.08, 0.02, 6, 8);
+      const wheel = new THREE.Mesh(wheelGeom, pipeMat);
+      wheel.position.y = 0.82;
+      wheel.position.x = valve.position.x;
+      wheel.rotation.x = Math.PI / 2;
+      group.add(wheel);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  /**
+   * Industrial ceiling lamp - hanging industrial light
+   */
+  static createIndustrialLamp(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const metalMat = this.materialCache.get('metalDark')!;
+
+    // Chain/wire hanging down
+    const wireGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.8, 4);
+    const wire = new THREE.Mesh(wireGeom, metalMat);
+    wire.position.y = 1.6;
+    group.add(wire);
+
+    // Lamp housing (cone)
+    const housingGeom = new THREE.ConeGeometry(0.25, 0.3, 8, 1, true);
+    const housing = new THREE.Mesh(housingGeom, metalMat);
+    housing.position.y = 1.1;
+    housing.rotation.x = Math.PI;
+    group.add(housing);
+
+    // Bulb (bright sphere)
+    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffdd88 });
+    const bulbGeom = new THREE.SphereGeometry(0.08, 8, 6);
+    const bulb = new THREE.Mesh(bulbGeom, bulbMat);
+    bulb.position.y = 1.0;
+    group.add(bulb);
+
+    // Glow sprite
+    const glow = this.createGlowSprite(1.5, 0xffdd88, 0.4);
+    glow.position.y = 1.0;
+    group.add(glow);
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  /**
+   * Metal debris - scattered metal pieces
+   */
+  static createMetalDebris(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const metalMat = this.materialCache.get('metalDark')!;
+    const rustyMat = this.materialCache.get('metalRusty')!;
+
+    // Scattered metal pieces
+    const pieceCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < pieceCount; i++) {
+      const sizeX = 0.1 + Math.random() * 0.15;
+      const sizeY = 0.02 + Math.random() * 0.05;
+      const sizeZ = 0.08 + Math.random() * 0.12;
+      const piece = new THREE.Mesh(
+        new THREE.BoxGeometry(sizeX, sizeY, sizeZ),
+        Math.random() > 0.5 ? metalMat : rustyMat
+      );
+      piece.position.set(
+        (Math.random() - 0.5) * 0.5,
+        sizeY / 2,
+        (Math.random() - 0.5) * 0.5
+      );
+      piece.rotation.y = Math.random() * Math.PI * 2;
+      piece.rotation.x = (Math.random() - 0.5) * 0.3;
+      group.add(piece);
+    }
+
+    // Maybe a bolt or screw
+    if (Math.random() > 0.5) {
+      const boltGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.08, 6);
+      const bolt = new THREE.Mesh(boltGeom, metalMat);
+      bolt.position.set(
+        (Math.random() - 0.5) * 0.3,
+        0.04,
+        (Math.random() - 0.5) * 0.3
+      );
+      bolt.rotation.z = Math.PI / 2;
+      group.add(bolt);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // ZONE-SPECIFIC DECORATIONS - Ritual
+  // ============================================================================
+
+  /**
+   * Crystal cluster - glowing purple crystals
+   */
+  static createCrystalCluster(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const crystalMat = new THREE.MeshBasicMaterial({
+      color: 0x8844aa,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const crystalDarkMat = new THREE.MeshBasicMaterial({
+      color: 0x5522aa,
+      transparent: true,
+      opacity: 0.7,
+    });
+
+    // Multiple crystals
+    const crystalCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < crystalCount; i++) {
+      const height = 0.2 + Math.random() * 0.3;
+      const radius = 0.04 + Math.random() * 0.04;
+      const crystalGeom = new THREE.ConeGeometry(radius, height, 4);
+      const crystal = new THREE.Mesh(
+        crystalGeom,
+        Math.random() > 0.5 ? crystalMat : crystalDarkMat
+      );
+      crystal.position.set(
+        (Math.random() - 0.5) * 0.3,
+        height / 2,
+        (Math.random() - 0.5) * 0.3
+      );
+      // Slight random tilt
+      crystal.rotation.x = (Math.random() - 0.5) * 0.3;
+      crystal.rotation.z = (Math.random() - 0.5) * 0.3;
+      group.add(crystal);
+    }
+
+    // Glow effect
+    const glow = this.createGlowSprite(0.8, 0x8844aa, 0.4);
+    glow.position.y = 0.25;
+    group.add(glow);
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  /**
+   * Arcane floor symbol - glowing rune on floor
+   */
+  static createArcaneSymbol(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0.02, z);
+
+    const runeMat = new THREE.MeshBasicMaterial({
+      color: 0xaa44ff,
+      transparent: true,
+      opacity: 0.5,
+    });
+
+    // Outer circle
+    const outerRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.4, 0.45, 16),
+      runeMat
+    );
+    outerRing.rotation.x = -Math.PI / 2;
+    group.add(outerRing);
+
+    // Cross pattern inside
+    const barGeom = new THREE.PlaneGeometry(0.7, 0.05);
+    const bar1 = new THREE.Mesh(barGeom, runeMat);
+    bar1.rotation.x = -Math.PI / 2;
+    bar1.position.y = 0.001;
+    group.add(bar1);
+
+    const bar2 = new THREE.Mesh(barGeom, runeMat);
+    bar2.rotation.x = -Math.PI / 2;
+    bar2.rotation.z = Math.PI / 2;
+    bar2.position.y = 0.001;
+    group.add(bar2);
+
+    // Corner dots
+    const dotGeom = new THREE.CircleGeometry(0.05, 8);
+    const dotPositions = [
+      { x: 0.25, z: 0.25 },
+      { x: -0.25, z: 0.25 },
+      { x: 0.25, z: -0.25 },
+      { x: -0.25, z: -0.25 },
+    ];
+    for (const pos of dotPositions) {
+      const dot = new THREE.Mesh(dotGeom, runeMat);
+      dot.rotation.x = -Math.PI / 2;
+      dot.position.set(pos.x, 0.002, pos.z);
+      group.add(dot);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
+  // ZONE-SPECIFIC DECORATIONS - Organic
+  // ============================================================================
+
+  /**
+   * Mushroom cluster - glowing organic mushrooms
+   */
+  static createMushroomCluster(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0x8b7355 });
+    const capMat = new THREE.MeshLambertMaterial({ color: 0x6b4423 });
+    const glowCapMat = new THREE.MeshBasicMaterial({
+      color: 0x88ff88,
+      transparent: true,
+      opacity: 0.8,
+    });
+
+    // Multiple mushrooms
+    const mushroomCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < mushroomCount; i++) {
+      const stemHeight = 0.1 + Math.random() * 0.15;
+      const capRadius = 0.06 + Math.random() * 0.06;
+      const isGlowing = Math.random() > 0.6;
+
+      // Stem
+      const stemGeom = new THREE.CylinderGeometry(0.02, 0.03, stemHeight, 6);
+      const stem = new THREE.Mesh(stemGeom, stemMat);
+      stem.position.set(
+        (Math.random() - 0.5) * 0.3,
+        stemHeight / 2,
+        (Math.random() - 0.5) * 0.3
+      );
+      group.add(stem);
+
+      // Cap
+      const capGeom = new THREE.SphereGeometry(capRadius, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+      const cap = new THREE.Mesh(capGeom, isGlowing ? glowCapMat : capMat);
+      cap.position.set(stem.position.x, stemHeight + capRadius * 0.3, stem.position.z);
+      group.add(cap);
+    }
+
+    // Subtle glow
+    const glow = this.createGlowSprite(0.5, 0x88ff88, 0.2);
+    glow.position.y = 0.15;
+    group.add(glow);
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  /**
+   * Rat egg sac - creepy organic nest element
+   */
+  static createEggSac(x: number, z: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+    group.position.set(x, 0, z);
+
+    const sacMat = new THREE.MeshLambertMaterial({
+      color: 0x9b7b6b,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: 0xffddcc,
+      transparent: true,
+      opacity: 0.4,
+    });
+
+    // Main sac (oval shape)
+    const sacGeom = new THREE.SphereGeometry(0.2, 8, 6);
+    const sac = new THREE.Mesh(sacGeom, sacMat);
+    sac.position.y = 0.18;
+    sac.scale.set(1, 0.8, 1);
+    group.add(sac);
+
+    // Inner glow/eggs visible
+    const innerGeom = new THREE.SphereGeometry(0.12, 6, 4);
+    const inner = new THREE.Mesh(innerGeom, innerMat);
+    inner.position.y = 0.18;
+    group.add(inner);
+
+    // Web strands connecting to ground
+    const webMat = new THREE.MeshBasicMaterial({
+      color: 0xcccccc,
+      transparent: true,
+      opacity: 0.3,
+    });
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * Math.PI * 2;
+      const webGeom = new THREE.CylinderGeometry(0.01, 0.01, 0.25, 4);
+      const web = new THREE.Mesh(webGeom, webMat);
+      web.position.set(
+        Math.cos(angle) * 0.15,
+        0.08,
+        Math.sin(angle) * 0.15
+      );
+      web.rotation.x = Math.cos(angle) * 0.5;
+      web.rotation.z = Math.sin(angle) * 0.5;
+      group.add(web);
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  /**
+   * Wall vines - organic growth on walls
+   */
+  static createWallVines(x: number, z: number, direction: 'x' | 'z', sign: number): THREE.Group {
+    this.initCaches();
+    const group = new THREE.Group();
+
+    const offsetX = direction === 'x' ? sign * 0.45 : 0;
+    const offsetZ = direction === 'z' ? sign * 0.45 : 0;
+    group.position.set(x + offsetX, 0, z + offsetZ);
+
+    if (direction === 'x') {
+      group.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
+    } else {
+      group.rotation.y = sign > 0 ? Math.PI : 0;
+    }
+
+    const vineMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x3d7a37 });
+
+    // Main vines (wavy vertical lines)
+    const vineCount = 2 + Math.floor(Math.random() * 2);
+    for (let v = 0; v < vineCount; v++) {
+      const startX = (Math.random() - 0.5) * 0.4;
+      const segments = 4 + Math.floor(Math.random() * 3);
+
+      for (let i = 0; i < segments; i++) {
+        const segmentGeom = new THREE.CylinderGeometry(0.015, 0.02, 0.2, 4);
+        const segment = new THREE.Mesh(segmentGeom, vineMat);
+        segment.position.set(
+          startX + Math.sin(i * 0.5) * 0.08,
+          0.1 + i * 0.18,
+          0
+        );
+        segment.rotation.z = Math.sin(i * 0.7) * 0.3;
+        group.add(segment);
+
+        // Random leaves
+        if (Math.random() > 0.6) {
+          const leafGeom = new THREE.CircleGeometry(0.05, 5);
+          const leaf = new THREE.Mesh(leafGeom, leafMat);
+          leaf.position.set(
+            segment.position.x + (Math.random() > 0.5 ? 0.06 : -0.06),
+            segment.position.y,
+            0.02
+          );
+          leaf.rotation.y = Math.random() * Math.PI;
+          group.add(leaf);
+        }
+      }
+    }
+
+    group.userData.mapObject = true;
+    return group;
+  }
+
+  // ============================================================================
   // Glow Sprite - Cheap glow effect using additive blending
   // ============================================================================
-  private static createGlowSprite(size: number, color: number, opacity: number): THREE.Sprite {
+  static createGlowSprite(size: number, color: number, opacity: number): THREE.Sprite {
     // Create a canvas for the glow texture
     const canvas = document.createElement('canvas');
     canvas.width = 64;

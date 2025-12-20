@@ -5,6 +5,7 @@
 import { AssetLoader, getAssetLoader, type AssetInfo } from './AssetLoader';
 import { LoadingScreen } from '../ui/LoadingScreen';
 import { ALL_SOUND_CONFIGS, MUSIC_TRACKS } from '../audio/AudioConfig';
+import { TextureManager, getTextureManager } from '../rendering/TextureManager';
 
 export class GameLoader {
   private loader: AssetLoader;
@@ -35,6 +36,10 @@ export class GameLoader {
 
     this.loadedBuffers = buffers;
 
+    // Initialize zone textures
+    this.loadingScreen.setStatus('Preparing textures...');
+    await getTextureManager().loadTextures();
+
     this.loadingScreen.setComplete();
 
     // Brief pause to show "complete" state
@@ -47,6 +52,9 @@ export class GameLoader {
 
   private collectAssets(): AssetInfo[] {
     const assets: AssetInfo[] = [];
+
+    // Zone textures (load first as they're important for visuals)
+    assets.push(...TextureManager.getTextureAssets());
 
     // Music tracks (largest files first for better UX - show big progress early)
     for (const track of MUSIC_TRACKS) {
