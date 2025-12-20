@@ -218,11 +218,11 @@ export class Renderer {
     const toCenter = sub(uvCoord, center);
     const dist = length(toCenter);
 
-    // Base aberration with subtle pulse
-    const baseStrength = add(0.012, mul(sin(mul(this.timeUniform, 1.5)), 0.002));
+    // Base aberration with subtle pulse (reduced for cleaner look)
+    const baseStrength = add(0.006, mul(sin(mul(this.timeUniform, 1.5)), 0.001));
 
-    // Damage boost - significantly increases aberration when hurt
-    const damageBoost = mul(this.damageIntensityUniform, 0.08);
+    // Damage boost - noticeable but not overwhelming
+    const damageBoost = mul(this.damageIntensityUniform, 0.05);
     const strength = add(baseStrength, damageBoost);
 
     const aberrationOffset = mul(toCenter, mul(dist, strength));
@@ -245,14 +245,14 @@ export class Renderer {
     const center = vec2(0.5, 0.5);
     const dist = length(sub(uvCoord, center));
 
-    // Soft falloff, only darkens the very edges
-    const vignette = smoothstep(float(0.4), float(0.9), dist);
+    // Very soft falloff, only darkens extreme edges
+    const vignette = smoothstep(float(0.5), float(1.0), dist);
 
-    // Darken edges slightly - keeps gameplay area fully visible
-    return mix(color, mul(color, 0.3), mul(vignette, 0.5));
+    // Very subtle darkening - keeps everything visible
+    return mix(color, mul(color, 0.7), mul(vignette, 0.3));
   }
 
-  // Film grain - adds gritty texture and movement
+  // Film grain - very subtle texture
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private applyFilmGrain(color: any) {
     const uvCoord = uv();
@@ -264,8 +264,8 @@ export class Renderer {
     );
     const noise = fract(mul(sin(seed), 43758.5453));
 
-    // Grain intensity - subtle but noticeable
-    const grainStrength = 0.08;
+    // Very subtle grain - barely noticeable
+    const grainStrength = 0.025;
     const grain = mul(sub(noise, 0.5), grainStrength);
 
     // Apply grain to color
