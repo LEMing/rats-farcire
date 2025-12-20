@@ -564,10 +564,15 @@ export class MapDecorations {
       group.add(flame);
     }
 
-    // Single glow sprite for the whole cluster (cheap)
-    const glowSprite = this.createGlowSprite(0.5, 0xffaa44, 0.35);
+    // Larger glow sprite for the whole cluster
+    const glowSprite = this.createGlowSprite(1.2, 0xffaa44, 0.5);
     glowSprite.position.set(0, 0.3, 0);
     group.add(glowSprite);
+
+    // Inner brighter glow
+    const innerGlow = this.createGlowSprite(0.5, 0xffcc66, 0.6);
+    innerGlow.position.set(0, 0.35, 0);
+    group.add(innerGlow);
 
     group.userData.mapObject = true;
     return group;
@@ -703,7 +708,7 @@ export class MapDecorations {
   }
 
   // ============================================================================
-  // Wall Torch - Corridor/room lighting
+  // Wall Lamp - Industrial electric lamp for corridors/rooms
   // ============================================================================
   static createWallTorch(x: number, z: number, wallDirection: 'x' | 'z', sign: number): THREE.Group {
     this.initCaches();
@@ -712,7 +717,7 @@ export class MapDecorations {
     // Position against wall
     const offsetX = wallDirection === 'x' ? sign * 0.45 : 0;
     const offsetZ = wallDirection === 'z' ? sign * 0.45 : 0;
-    group.position.set(x + offsetX, 0.9, z + offsetZ);
+    group.position.set(x + offsetX, 1.1, z + offsetZ);
 
     // Rotate to face outward from wall
     if (wallDirection === 'x') {
@@ -721,56 +726,80 @@ export class MapDecorations {
       group.rotation.y = sign > 0 ? Math.PI : 0;
     }
 
-    // Wall bracket
-    const bracketMat = this.materialCache.get('metalDark')!;
-    const bracket = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 0.15, 0.2),
-      bracketMat
-    );
-    bracket.position.set(0.1, 0, 0);
-    group.add(bracket);
+    const metalMat = this.materialCache.get('metalDark')!;
+    const rustyMat = this.materialCache.get('metalRusty')!;
 
-    // Torch holder (horizontal arm)
-    const arm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.06, 0.25),
-      bracketMat
+    // Wall mount plate
+    const mountPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.12, 0.12),
+      metalMat
     );
-    arm.position.set(0.22, 0, 0);
+    mountPlate.position.set(0.03, 0, 0);
+    group.add(mountPlate);
+
+    // Angled arm
+    const arm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.04, 0.2),
+      rustyMat
+    );
+    arm.position.set(0.15, -0.05, 0);
+    arm.rotation.z = -0.3;
     group.add(arm);
 
-    // Torch body
-    const torchBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.07, 0.35, 8),
-      this.materialCache.get('woodDark')!
+    // Lamp housing (cage-like industrial fixture)
+    const housingTop = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.1, 0.04, 8),
+      metalMat
     );
-    torchBody.position.set(0.35, 0.1, 0);
-    group.add(torchBody);
+    housingTop.position.set(0.25, -0.08, 0);
+    group.add(housingTop);
 
-    // Flame (multiple overlapping cones for effect)
-    const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-    const flameInnerMat = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
+    // Wire cage bars
+    const cageBarMat = new THREE.MeshLambertMaterial({ color: 0x2a2a2a });
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const bar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008, 0.008, 0.15, 4),
+        cageBarMat
+      );
+      bar.position.set(
+        0.25 + Math.cos(angle) * 0.07,
+        -0.17,
+        Math.sin(angle) * 0.07
+      );
+      group.add(bar);
+    }
 
-    const flameOuter = new THREE.Mesh(
-      new THREE.ConeGeometry(0.08, 0.2, 6),
-      flameMat
+    // Cage bottom ring
+    const cageRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.07, 0.01, 6, 12),
+      cageBarMat
     );
-    flameOuter.position.set(0.35, 0.35, 0);
-    group.add(flameOuter);
+    cageRing.position.set(0.25, -0.24, 0);
+    cageRing.rotation.x = Math.PI / 2;
+    group.add(cageRing);
 
-    const flameInner = new THREE.Mesh(
-      new THREE.ConeGeometry(0.04, 0.15, 6),
-      flameInnerMat
+    // Light bulb (glowing)
+    const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffcc });
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 8, 6),
+      bulbMat
     );
-    flameInner.position.set(0.35, 0.33, 0);
-    group.add(flameInner);
+    bulb.position.set(0.25, -0.15, 0);
+    group.add(bulb);
 
-    // Glow sprite (additive blend for soft glow effect)
-    const glowSprite = this.createGlowSprite(0.6, 0xff6600, 0.4);
-    glowSprite.position.set(0.35, 0.35, 0);
+    // Large glow sprite for warm light effect
+    const glowSprite = this.createGlowSprite(1.8, 0xffdd88, 0.6);
+    glowSprite.position.set(0.25, -0.15, 0);
     group.add(glowSprite);
 
+    // Secondary smaller brighter glow
+    const innerGlow = this.createGlowSprite(0.8, 0xffffee, 0.7);
+    innerGlow.position.set(0.25, -0.15, 0);
+    group.add(innerGlow);
+
     group.userData.mapObject = true;
-    group.userData.isWallTorch = true;
+    group.userData.isWallLamp = true;
 
     return group;
   }

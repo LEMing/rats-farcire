@@ -464,18 +464,18 @@ export class MapRenderer {
   }
 
   private decorateGrinderRoom(room: Room, centerX: number, centerZ: number, mapData: MapData): void {
-    // Wall torches for industrial lighting
-    this.addWallTorchesToRoom(room, mapData, 3);
+    // Wall lamps for industrial lighting
+    this.addWallTorchesToRoom(room, mapData, 4);
 
     // Centerpiece: Meat grinder
     const grinder = MapDecorations.createMeatGrinder(centerX, centerZ);
     this.deps.scene.add(grinder);
 
-    // Meat piles around the grinder - increased count
-    const pileCount = 5 + Math.floor(Math.random() * 3);
+    // Meat piles around the grinder - many piles
+    const pileCount = 7 + Math.floor(Math.random() * 4);
     for (let i = 0; i < pileCount; i++) {
       const angle = (i / pileCount) * Math.PI * 2 + Math.random() * 0.5;
-      const dist = 1.5 + Math.random() * 2;
+      const dist = 1.2 + Math.random() * 2.5;
       const pile = MapDecorations.createMeatPile(
         centerX + Math.cos(angle) * dist,
         0,
@@ -484,8 +484,8 @@ export class MapRenderer {
       this.deps.scene.add(pile);
     }
 
-    // Blood pools - increased count
-    const poolCount = 4 + Math.floor(Math.random() * 3);
+    // Blood pools everywhere
+    const poolCount = 6 + Math.floor(Math.random() * 4);
     for (let i = 0; i < poolCount; i++) {
       const pos = this.getRandomRoomPosition(room);
       const pool = MapDecorations.createBloodPool(pos.x, pos.z);
@@ -493,10 +493,31 @@ export class MapRenderer {
     }
 
     // Scattered bones
-    const bonePositions = this.getRandomRoomPositions(room, 2);
+    const boneCount = 4 + Math.floor(Math.random() * 3);
+    const bonePositions = this.getRandomRoomPositions(room, boneCount);
     for (const pos of bonePositions) {
       const bones = MapDecorations.createBonePile(pos.x, pos.z);
       this.deps.scene.add(bones);
+    }
+
+    // Crates and barrels around edges
+    const cratePositions = this.getRandomRoomPositions(room, 3);
+    for (const pos of cratePositions) {
+      if (Math.random() > 0.5) {
+        const crate = MapDecorations.createCrate(pos.x, pos.z);
+        this.deps.scene.add(crate);
+      } else {
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, Math.random() < 0.3);
+        this.deps.scene.add(barrel);
+      }
+    }
+
+    // Debris clusters
+    const debrisCount = 3 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < debrisCount; i++) {
+      const pos = this.getRandomRoomPosition(room);
+      const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
+      this.deps.scene.add(debris);
     }
   }
 
@@ -512,18 +533,12 @@ export class MapRenderer {
       this.deps.scene.add(stack);
     }
 
-    // Scattered crates and barrels - increased density
-    const scatterCount = 5 + Math.floor(Math.random() * 4);
+    // Scattered crates only (no decorative barrels - explosive barrels are spawned separately)
+    const scatterCount = 6 + Math.floor(Math.random() * 4);
     const scatterPositions = this.getRandomRoomPositions(room, scatterCount);
     for (const pos of scatterPositions) {
-      if (Math.random() > 0.4) {
-        const crate = MapDecorations.createCrate(pos.x, pos.z);
-        this.deps.scene.add(crate);
-      } else {
-        const tipped = Math.random() < 0.3;
-        const barrel = MapDecorations.createBarrel(pos.x, pos.z, tipped);
-        this.deps.scene.add(barrel);
-      }
+      const crate = MapDecorations.createCrate(pos.x, pos.z);
+      this.deps.scene.add(crate);
     }
 
     // Some debris on the floor
@@ -535,44 +550,57 @@ export class MapRenderer {
   }
 
   private decorateNestRoom(room: Room, mapData: MapData): void {
-    // Minimal torches - nests are dark
-    this.addWallTorchesToRoom(room, mapData, 1);
+    // Minimal lamps - nests are dark
+    this.addWallTorchesToRoom(room, mapData, 2);
 
-    // Bone piles - dense in nest rooms
-    const boneCount = 4 + Math.floor(Math.random() * 3);
+    // Bone piles - very dense in nest rooms
+    const boneCount = 6 + Math.floor(Math.random() * 4);
     const bonePositions = this.getRandomRoomPositions(room, boneCount);
     for (const pos of bonePositions) {
       const bones = MapDecorations.createBonePile(pos.x, pos.z);
       this.deps.scene.add(bones);
     }
 
-    // Debris clusters - increased
-    const debrisCount = 3 + Math.floor(Math.random() * 3);
+    // Debris clusters - lots of debris
+    const debrisCount = 5 + Math.floor(Math.random() * 3);
     const debrisPositions = this.getRandomRoomPositions(room, debrisCount);
     for (const pos of debrisPositions) {
       const debris = MapDecorations.createDebrisCluster(pos.x, pos.z);
       this.deps.scene.add(debris);
     }
 
-    // Scattered small debris
-    const smallDebrisCount = 4 + Math.floor(Math.random() * 3);
+    // Scattered small debris everywhere
+    const smallDebrisCount = 6 + Math.floor(Math.random() * 4);
     for (let i = 0; i < smallDebrisCount; i++) {
       const pos = this.getRandomRoomPosition(room);
       const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
       this.deps.scene.add(debris);
     }
 
+    // Some broken crates/barrels
+    const crateCount = 2 + Math.floor(Math.random() * 2);
+    const cratePositions = this.getRandomRoomPositions(room, crateCount);
+    for (const pos of cratePositions) {
+      if (Math.random() > 0.5) {
+        const crate = MapDecorations.createCrate(pos.x, pos.z);
+        this.deps.scene.add(crate);
+      } else {
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, true); // Always tipped
+        this.deps.scene.add(barrel);
+      }
+    }
+
     // Puddles (water and blood)
-    const puddleCount = 2 + Math.floor(Math.random() * 2);
+    const puddleCount = 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < puddleCount; i++) {
       const pos = this.getRandomRoomPosition(room);
-      const isBlood = Math.random() < 0.4;
+      const isBlood = Math.random() < 0.5;
       const puddle = MapDecorations.createPuddle(pos.x, pos.z, isBlood);
       this.deps.scene.add(puddle);
     }
 
-    // Rat holes on walls - increased chance
-    this.addRatHolesToRoom(room, mapData, 0.2);
+    // Rat holes on walls - many holes
+    this.addRatHolesToRoom(room, mapData, 0.25);
   }
 
   private decorateShrineRoom(room: Room, centerX: number, centerZ: number, mapData: MapData): void {
@@ -616,26 +644,26 @@ export class MapRenderer {
   }
 
   private decorateNormalRoom(room: Room, mapData: MapData): void {
-    // Wall torches for basic lighting
-    this.addWallTorchesToRoom(room, mapData, 2);
+    // Wall lamps for basic lighting
+    this.addWallTorchesToRoom(room, mapData, 3);
 
-    // Random decorations - increased count
-    const decorCount = 3 + Math.floor(Math.random() * 3);
+    // Random decorations - more dense
+    const decorCount = 5 + Math.floor(Math.random() * 4);
     const positions = this.getRandomRoomPositions(room, decorCount);
 
     for (const pos of positions) {
       const rand = Math.random();
-      if (rand < 0.25) {
+      if (rand < 0.20) {
         const bones = MapDecorations.createBonePile(pos.x, pos.z);
         this.deps.scene.add(bones);
-      } else if (rand < 0.45) {
+      } else if (rand < 0.40) {
         const debris = MapDecorations.createDebrisCluster(pos.x, pos.z);
         this.deps.scene.add(debris);
-      } else if (rand < 0.65) {
+      } else if (rand < 0.60) {
         const crate = MapDecorations.createCrate(pos.x, pos.z);
         this.deps.scene.add(crate);
       } else if (rand < 0.80) {
-        const barrel = MapDecorations.createBarrel(pos.x, pos.z, Math.random() < 0.2);
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, Math.random() < 0.25);
         this.deps.scene.add(barrel);
       } else {
         const smallDebris = MapDecorations.createSmallDebris(pos.x, pos.z);
@@ -643,17 +671,26 @@ export class MapRenderer {
       }
     }
 
-    // Scatter some puddles
-    if (Math.random() < 0.4) {
+    // Scatter small debris
+    const smallCount = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < smallCount; i++) {
+      const pos = this.getRandomRoomPosition(room);
+      const debris = MapDecorations.createSmallDebris(pos.x, pos.z);
+      this.deps.scene.add(debris);
+    }
+
+    // Multiple puddles
+    const puddleCount = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < puddleCount; i++) {
       const pos = this.getRandomRoomPosition(room);
       const isBlood = Math.random() < 0.3;
       const puddle = MapDecorations.createPuddle(pos.x, pos.z, isBlood);
       this.deps.scene.add(puddle);
     }
 
-    // Maybe a rat hole
-    if (Math.random() < 0.3) {
-      this.addRatHolesToRoom(room, mapData, 0.05);
+    // Rat holes
+    if (Math.random() < 0.5) {
+      this.addRatHolesToRoom(room, mapData, 0.08);
     }
   }
 
