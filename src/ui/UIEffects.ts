@@ -43,6 +43,10 @@ export class UIEffects {
   private activeNotification: HTMLElement | null = null;
   private isProcessingQueue = false;
 
+  // DOM element pool for damage numbers (avoids reflow on createElement)
+  private popupPool: HTMLElement[] = [];
+  private readonly POOL_MAX_SIZE = 30;
+
   constructor() {
     this.damageVignette = this.createDamageVignette();
     this.lowHealthOverlay = this.createLowHealthOverlay();
@@ -149,6 +153,26 @@ export class UIEffects {
     `;
     document.getElementById('ui-overlay')?.appendChild(container);
     return container;
+  }
+
+  // ============================================================================
+  // DOM Pooling - Reuse elements to avoid reflow
+  // ============================================================================
+
+  private getPooledElement(): HTMLElement {
+    if (this.popupPool.length > 0) {
+      return this.popupPool.pop()!;
+    }
+    return document.createElement('div');
+  }
+
+  private releaseToPool(el: HTMLElement): void {
+    el.remove();
+    el.textContent = '';
+    el.className = '';
+    if (this.popupPool.length < this.POOL_MAX_SIZE) {
+      this.popupPool.push(el);
+    }
   }
 
   // ============================================================================
@@ -270,8 +294,7 @@ export class UIEffects {
   // ============================================================================
 
   spawnDamageNumber(screenX: number, screenY: number, damage: number, isCritical: boolean = false, combo: number = 0): void {
-    const num = document.createElement('div');
-    num.className = 'damage-number';
+    const num = this.getPooledElement();
 
     let text = Math.round(damage).toString();
     if (combo > 1) {
@@ -298,11 +321,11 @@ export class UIEffects {
 
     this.damageNumbersContainer.appendChild(num);
 
-    setTimeout(() => num.remove(), 800);
+    setTimeout(() => this.releaseToPool(num), 800);
   }
 
   spawnScorePopup(screenX: number, screenY: number, score: number, combo: number): void {
-    const popup = document.createElement('div');
+    const popup = this.getPooledElement();
     const multiplier = combo > 1 ? ` x${combo}` : '';
 
     popup.style.cssText = `
@@ -322,11 +345,11 @@ export class UIEffects {
 
     this.damageNumbersContainer.appendChild(popup);
 
-    setTimeout(() => popup.remove(), 1000);
+    setTimeout(() => this.releaseToPool(popup), 1000);
   }
 
   spawnHealNumber(screenX: number, screenY: number, amount: number): void {
-    const popup = document.createElement('div');
+    const popup = this.getPooledElement();
     popup.style.cssText = `
       position: absolute;
       left: ${screenX}px;
@@ -344,7 +367,7 @@ export class UIEffects {
 
     this.damageNumbersContainer.appendChild(popup);
 
-    setTimeout(() => popup.remove(), 800);
+    setTimeout(() => this.releaseToPool(popup), 800);
   }
 
   // ============================================================================
