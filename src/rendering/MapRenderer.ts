@@ -1319,8 +1319,9 @@ export class MapRenderer {
   removeExplosiveBarrel(barrelId: string): void {
     const barrelGroup = this.explosiveBarrels.get(barrelId);
     if (barrelGroup) {
-      this.deps.scene.remove(barrelGroup);
       this.explosiveBarrels.delete(barrelId);
+      // Scale to 0 to hide instantly
+      barrelGroup.scale.set(0, 0, 0);
     }
   }
 

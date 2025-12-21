@@ -249,7 +249,7 @@ export class ThermobaricEffect {
   private fireballCore: THREE.Mesh | null = null;
   private fireballFlash: THREE.Mesh | null = null;
   private groundScorch: THREE.Mesh | null = null;
-  private pointLight: THREE.PointLight | null = null;
+  // PointLight removed for performance - too expensive with multiple explosions
 
   // Reusable matrix for instancing
   private static dummyMatrix = new THREE.Matrix4();
@@ -331,7 +331,6 @@ export class ThermobaricEffect {
     this.createFireParticles(50);
     this.createSmokeParticles(30);
     this.createGroundScorch();
-    this.createPointLight();
   }
 
   private createCentralFlash(): void {
@@ -346,7 +345,6 @@ export class ThermobaricEffect {
   }
 
   private createFireball(): void {
-    // Clone pre-compiled materials (fast - shader already compiled)
     const outerMat = ExplosionResources.fireballOuterMaterial.clone();
 
     this.fireball = new THREE.Mesh(ExplosionResources.fireballGeometry, outerMat);
@@ -467,17 +465,59 @@ export class ThermobaricEffect {
 
   /**
    * Pre-warm explosion shaders during game loading
+   * Also pre-creates instanced meshes to avoid first-explosion stutter
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   static prewarm(scene: THREE.Scene, renderer: any): void {
     ExplosionResources.prewarm(scene, renderer);
-  }
 
-  private createPointLight(): void {
-    this.pointLight = new THREE.PointLight(0x66aaff, 15, this.radius * 3);
-    this.pointLight.position.copy(this.position);
-    this.pointLight.position.y += 1;
-    this.scene.add(this.pointLight);
+    // Pre-create instanced meshes (this is what was causing the first-explosion freeze)
+    if (!ThermobaricEffect.fireInstances) {
+      const fireMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending,
+      });
+      ThermobaricEffect.fireInstances = new THREE.InstancedMesh(
+        ExplosionResources.sphereGeometry,
+        fireMat,
+        ThermobaricEffect.MAX_FIRE_PARTICLES
+      );
+      ThermobaricEffect.fireInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      ThermobaricEffect.fireInstances.frustumCulled = false;
+
+      for (let i = 0; i < ThermobaricEffect.MAX_FIRE_PARTICLES; i++) {
+        ThermobaricEffect.fireInstances.setMatrixAt(i, ThermobaricEffect.hiddenMatrix);
+        ThermobaricEffect.fireInstances.setColorAt(i, new THREE.Color(0x000000));
+      }
+      ThermobaricEffect.fireInstances.instanceMatrix.needsUpdate = true;
+      scene.add(ThermobaricEffect.fireInstances);
+    }
+
+    if (!ThermobaricEffect.smokeInstances) {
+      const smokeMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0.7,
+      });
+      ThermobaricEffect.smokeInstances = new THREE.InstancedMesh(
+        ExplosionResources.smokeGeometry,
+        smokeMat,
+        ThermobaricEffect.MAX_SMOKE_PARTICLES
+      );
+      ThermobaricEffect.smokeInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      ThermobaricEffect.smokeInstances.frustumCulled = false;
+
+      for (let i = 0; i < ThermobaricEffect.MAX_SMOKE_PARTICLES; i++) {
+        ThermobaricEffect.smokeInstances.setMatrixAt(i, ThermobaricEffect.hiddenMatrix);
+        ThermobaricEffect.smokeInstances.setColorAt(i, new THREE.Color(0x333333));
+      }
+      ThermobaricEffect.smokeInstances.instanceMatrix.needsUpdate = true;
+      scene.add(ThermobaricEffect.smokeInstances);
+    }
+
+    // Force render to compile instanced mesh shaders
+    renderer.render(scene, new THREE.PerspectiveCamera());
+    console.log('ThermobaricEffect instanced meshes pre-warmed');
   }
 
   update(): boolean {
@@ -492,16 +532,14 @@ export class ThermobaricEffect {
     this.updateFireParticles(elapsed);
     this.updateSmokeParticles(elapsed);
     this.updateGroundScorch(elapsed);
-    this.updatePointLight(elapsed);
 
-    // Check completion
-    const allDone = elapsed > 2.5 &&
+    // Check completion (faster with reduced effects)
+    const allDone = elapsed > 2.0 &&
       !this.centralFlash &&
       !this.fireball &&
       this.shockwaves.every(s => !s.active) &&
       this.fireParticles.every(p => !p.active) &&
-      this.smokeParticles.every(p => !p.active) &&
-      !this.pointLight;
+      this.smokeParticles.every(p => !p.active);
 
     if (allDone) {
       this.isComplete = true;
@@ -702,30 +740,6 @@ export class ThermobaricEffect {
     (this.groundScorch.material as THREE.MeshBasicMaterial).opacity = opacity;
   }
 
-  private updatePointLight(elapsed: number): void {
-    if (!this.pointLight) return;
-
-    const duration = 1.0;
-    if (elapsed < duration) {
-      const progress = elapsed / duration;
-      const intensity = progress < 0.1
-        ? 25 * (progress / 0.1)
-        : 25 * (1 - (progress - 0.1) / 0.9);
-      this.pointLight.intensity = Math.max(0, intensity);
-
-      if (progress < 0.15) {
-        this.pointLight.color.setHex(0xffffff);
-      } else if (progress < 0.4) {
-        this.pointLight.color.setHex(0xaaddff);
-      } else {
-        this.pointLight.color.setHex(0x4488ff);
-      }
-    } else {
-      this.scene.remove(this.pointLight);
-      this.pointLight = null;
-    }
-  }
-
   private fadeGroundScorch(): void {
     if (!this.groundScorch) return;
 
@@ -758,9 +772,6 @@ export class ThermobaricEffect {
     if (this.groundScorch) {
       this.scene.remove(this.groundScorch);
       (this.groundScorch.material as THREE.Material).dispose();
-    }
-    if (this.pointLight) {
-      this.scene.remove(this.pointLight);
     }
 
     for (const sw of this.shockwaves) {
