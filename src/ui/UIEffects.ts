@@ -27,6 +27,7 @@ const KILL_RATINGS = [
 
 export class UIEffects {
   private damageVignette: HTMLElement;
+  private lowHealthOverlay: HTMLElement;
   private killFlash: HTMLElement;
   private damageNumbersContainer: HTMLElement;
   private killRatingContainer: HTMLElement;
@@ -44,6 +45,7 @@ export class UIEffects {
 
   constructor() {
     this.damageVignette = this.createDamageVignette();
+    this.lowHealthOverlay = this.createLowHealthOverlay();
     this.killFlash = this.createKillFlash();
     this.damageNumbersContainer = this.createDamageNumbersContainer();
     this.killRatingContainer = this.createKillRatingContainer();
@@ -83,6 +85,35 @@ export class UIEffects {
     `;
     document.getElementById('ui-overlay')?.appendChild(vignette);
     return vignette;
+  }
+
+  private createLowHealthOverlay(): HTMLElement {
+    const overlay = document.createElement('div');
+    overlay.id = 'low-health-overlay';
+    overlay.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0;
+      z-index: 99;
+      box-sizing: border-box;
+    `;
+    // Subtle vignette only - no border, no text
+    overlay.innerHTML = `
+      <div class="low-health-vignette" style="
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(ellipse at center, transparent 50%, rgba(80, 0, 0, 0.4) 100%);
+      "></div>
+    `;
+    document.getElementById('ui-overlay')?.appendChild(overlay);
+    return overlay;
   }
 
   private createKillFlash(): HTMLElement {
@@ -208,13 +239,29 @@ export class UIEffects {
 
   updateLowHealthPulse(healthPercent: number): void {
     if (healthPercent <= 30 && healthPercent > 0) {
-      this.lowHealthPulse += 0.15;
+      this.lowHealthPulse += 0.08; // Gentle heartbeat
+
+      // Soft pulse
       const pulse = Math.sin(this.lowHealthPulse) * 0.5 + 0.5;
+
+      // Intensity increases as health drops (0 at 30%, 1 at 0%)
       const intensity = (30 - healthPercent) / 30;
-      this.damageVignette.style.opacity = (pulse * 0.4 * intensity).toString();
-      this.damageVignette.style.transition = 'none';
+
+      // Very subtle: 0.02 - 0.05 opacity
+      const baseOpacity = 0.02 + intensity * 0.03;
+      const finalOpacity = baseOpacity + pulse * 0.015 * intensity;
+      this.lowHealthOverlay.style.opacity = finalOpacity.toString();
     } else {
+      // Fade out smoothly
       this.lowHealthPulse = 0;
+      const currentOpacity = parseFloat(this.lowHealthOverlay.style.opacity) || 0;
+      if (currentOpacity > 0) {
+        this.lowHealthOverlay.style.transition = 'opacity 0.5s ease-out';
+        this.lowHealthOverlay.style.opacity = '0';
+        setTimeout(() => {
+          this.lowHealthOverlay.style.transition = '';
+        }, 500);
+      }
     }
   }
 

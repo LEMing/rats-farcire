@@ -7,6 +7,7 @@ import { UIManager } from '../ui/UIManager';
 import { LocalGameLoop } from './LocalGameLoop';
 import { createAudioManager, getAudioManager } from '../audio/AudioManager';
 import { PauseMenu } from '../ui/PauseMenu';
+import { TutorialOverlay } from '../ui/components/TutorialOverlay';
 import { debug } from '../utils/debug';
 import type { MapData, InputState } from '@shared/types';
 import { TICK_RATE, MAP_WIDTH, MAP_HEIGHT } from '@shared/constants';
@@ -53,6 +54,10 @@ export class Game {
   private isPaused = false;
   private lastEscapeState = false;
   private pauseMenu: PauseMenu | null = null;
+
+  // Tutorial system
+  private tutorialOverlay: TutorialOverlay | null = null;
+  private isTutorialActive = false;
 
   /**
    * Create a new Game instance
@@ -144,7 +149,10 @@ export class Game {
     const spawnPoint = this.mapData.spawnPoints[0];
     this.localLoop.spawnLocalPlayer(spawnPoint);
 
-    // Start game loop
+    // Show tutorial overlay
+    this.showTutorial();
+
+    // Start game loop (paused during tutorial)
     this.isRunning = true;
     this.lastTime = performance.now();
     requestAnimationFrame(this.gameLoop.bind(this));
@@ -227,8 +235,8 @@ export class Game {
       this.togglePause();
     }
 
-    // Skip game logic when paused
-    if (this.isPaused) {
+    // Skip game logic when paused or tutorial active
+    if (this.isPaused || this.isTutorialActive) {
       return;
     }
 
@@ -263,6 +271,23 @@ export class Game {
     }
 
     debug.log('Game', this.isPaused ? 'paused' : 'resumed');
+  }
+
+  private showTutorial(): void {
+    this.isTutorialActive = true;
+    document.body.style.cursor = 'auto';
+
+    this.tutorialOverlay = new TutorialOverlay();
+    this.tutorialOverlay.setOnDismiss(() => {
+      this.isTutorialActive = false;
+      this.tutorialOverlay = null;
+      document.body.style.cursor = 'none';
+
+      // Start music after tutorial
+      getAudioManager()?.playMusic('ambient');
+
+      debug.log('Tutorial dismissed, game starting');
+    });
   }
 
   private render(alpha: number): void {

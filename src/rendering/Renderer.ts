@@ -75,10 +75,8 @@ export class Renderer {
   private damageIntensity = 0;
   private readonly damageDecayRate = 3.0; // How fast damage effect fades
 
-  // Low health effect (0-1, desaturation and pulse)
+  // Low health effect (disabled - UI overlay handles this now)
   private readonly lowHealthUniform = uniform(0);
-  private lowHealthIntensity = 0;
-  private lowHealthPulseTime = 0;
 
   // Active thermobaric effects
   private thermobaricEffects: ThermobaricEffect[] = [];
@@ -624,26 +622,12 @@ export class Renderer {
   }
 
   /**
-   * Set low health visual effect intensity (desaturation + pulse)
-   * @param healthPercent 0-100, current health percentage
+   * Set low health visual effect intensity
+   * Disabled - the desaturation effect was too intrusive
    */
-  setLowHealthIntensity(healthPercent: number): void {
-    // Start effect below 30% health, full intensity at 0%
-    if (healthPercent < 30 && healthPercent > 0) {
-      const baseIntensity = (30 - healthPercent) / 30; // 0 at 30%, 1 at 0%
-
-      // Add heartbeat pulse
-      this.lowHealthPulseTime += 0.1;
-      const heartbeat = Math.sin(this.lowHealthPulseTime * 4) * 0.5 + 0.5; // Faster pulse when health is lower
-      const pulseIntensity = baseIntensity * 0.3; // Pulse adds up to 30% variation
-
-      this.lowHealthIntensity = baseIntensity * 0.7 + heartbeat * pulseIntensity;
-      this.lowHealthUniform.value = Math.min(0.6, this.lowHealthIntensity); // Cap at 60% desaturation
-    } else {
-      this.lowHealthIntensity = 0;
-      this.lowHealthUniform.value = 0;
-      this.lowHealthPulseTime = 0;
-    }
+  setLowHealthIntensity(_healthPercent: number): void {
+    // Disabled - UI overlay handles low health indication now
+    this.lowHealthUniform.value = 0;
   }
 
   createThermobaricEffect(position: Vec3, radius: number): void {

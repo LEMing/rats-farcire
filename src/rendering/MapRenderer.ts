@@ -1393,14 +1393,7 @@ export class MapRenderer {
       this.deps.scene.add(flame);
       this.torchFlames.push(flame);
 
-      // Small point light per candle
-      const light = new THREE.PointLight(0xff8844, 0.3, 4);
-      light.position.set(x + pos.dx, 0.8, z + pos.dz);
-      light.userData.mapObject = true;
-      light.userData.baseIntensity = 0.3;
-      light.userData.flickerTime = Math.random() * Math.PI * 2;
-      this.deps.scene.add(light);
-      this.torchLights.push(light);
+      // Point lights removed for performance - glow sprites provide visual
     }
   }
 
@@ -1432,14 +1425,7 @@ export class MapRenderer {
     this.deps.scene.add(flame);
     this.torchFlames.push(flame);
 
-    // Point light
-    const light = new THREE.PointLight(0xff6633, 0.6, 10);
-    light.position.set(x + offsetX, TILE_SIZE * 0.9, z + offsetZ);
-    light.userData.mapObject = true;
-    light.userData.baseIntensity = 0.6;
-    light.userData.flickerTime = Math.random() * Math.PI * 2;
-    this.deps.scene.add(light);
-    this.torchLights.push(light);
+    // Point lights removed for performance - glow sprites provide visual
   }
 
   updateTorches(): void {
