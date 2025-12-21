@@ -47,6 +47,12 @@ export class Renderer {
   private readonly CAMERA_LEAD = 3; // How far camera looks ahead toward aim
   private readonly CAMERA_SMOOTHING = 0.12; // Lower = smoother/slower follow
 
+  // Zoom state (1.0 = default, 0.5 = zoomed in 50%, 1.5 = zoomed out 50%)
+  private zoomLevel = 1.0;
+  private readonly ZOOM_MIN = 0.5;
+  private readonly ZOOM_MAX = 1.5;
+  private readonly ZOOM_SPEED = 0.1;
+
   // Camera follow state
   private cameraTarget = new THREE.Vector3();
   private currentCameraLookAt = new THREE.Vector3();
@@ -526,7 +532,7 @@ export class Renderer {
 
   resize(width: number, height: number): void {
     const aspect = width / height;
-    const viewSize = this.CAMERA_ZOOM;
+    const viewSize = this.CAMERA_ZOOM * this.zoomLevel;
 
     this.camera.left = -viewSize * aspect;
     this.camera.right = viewSize * aspect;
@@ -537,6 +543,25 @@ export class Renderer {
     if (this.renderer) {
       this.renderer.setSize(width, height);
     }
+  }
+
+  /**
+   * Adjust zoom level by delta (positive = zoom out, negative = zoom in)
+   */
+  adjustZoom(delta: number): void {
+    this.zoomLevel = Math.max(
+      this.ZOOM_MIN,
+      Math.min(this.ZOOM_MAX, this.zoomLevel + delta * this.ZOOM_SPEED)
+    );
+    // Apply zoom by resizing camera
+    this.resize(window.innerWidth, window.innerHeight);
+  }
+
+  /**
+   * Get current zoom level
+   */
+  getZoomLevel(): number {
+    return this.zoomLevel;
   }
 
   render(): void {

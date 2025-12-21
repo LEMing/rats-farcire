@@ -3,9 +3,11 @@
  *
  * Explosive barrels can be shot by projectiles to trigger area damage.
  * They can also chain-react with nearby barrels.
+ * With physics enabled, barrels can be pushed and fly from explosions.
  */
 
 import type { Vec3, ProjectileState, BarrelState } from '@shared/types';
+import type { PhysicsManager } from '../physics/PhysicsManager';
 
 // ============================================================================
 // Types
@@ -43,12 +45,12 @@ export interface BarrelManagerConfig {
 
 const DEFAULT_CONFIG: BarrelManagerConfig = {
   hitboxRadius: 0.5,
-  explosionRadius: 4,
+  explosionRadius: 6,        // Increased damage radius
   enemyDamage: 80,
   playerDamage: 30,
-  knockbackForce: 15,
-  chainReactionRadius: 5,
-  chainReactionDelay: 100,
+  knockbackForce: 50,        // Massively increased for dramatic effect
+  chainReactionRadius: 3,    // Reduced - only very close barrels chain
+  chainReactionDelay: 600,   // Increased - gives time for barrels to fly
 };
 
 // ============================================================================
@@ -61,6 +63,7 @@ export class BarrelManager {
   private config: BarrelManagerConfig;
   private callbacks: BarrelManagerCallbacks;
   private nextBarrelId = 0;
+  private physics: PhysicsManager | null = null;
 
   constructor(
     config: Partial<BarrelManagerConfig> = {},
@@ -68,6 +71,26 @@ export class BarrelManager {
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.callbacks = callbacks;
+  }
+
+  /**
+   * Set the physics manager for physics-enabled barrels
+   * Also creates physics bodies for any existing barrels
+   */
+  setPhysicsManager(physics: PhysicsManager): void {
+    this.physics = physics;
+
+    // Create physics bodies for existing barrels
+    for (const barrel of this.barrels.values()) {
+      if (!barrel.isExploding) {
+        this.physics.createBarrelBody(
+          barrel.id,
+          barrel.position.x,
+          barrel.position.y,
+          barrel.position.z
+        );
+      }
+    }
   }
 
   /**
@@ -82,7 +105,40 @@ export class BarrelManager {
       isExploding: false,
     };
     this.barrels.set(id, barrel);
+
+    // Create physics body if physics is enabled
+    if (this.physics) {
+      this.physics.createBarrelBody(id, position.x, position.y, position.z);
+    }
+
     return barrel;
+  }
+
+  /**
+   * Sync barrel positions from physics simulation
+   * Call this after physics.step()
+   */
+  syncFromPhysics(): void {
+    if (!this.physics) return;
+
+    for (const barrel of this.barrels.values()) {
+      if (barrel.isExploding) continue;
+
+      const physPos = this.physics.getPosition(barrel.id);
+      if (physPos) {
+        barrel.position.x = physPos.x;
+        barrel.position.y = physPos.y;
+        barrel.position.z = physPos.z;
+      }
+    }
+  }
+
+  /**
+   * Get barrel rotation from physics (for visual tumbling)
+   */
+  getBarrelRotation(barrelId: string): { x: number; y: number; z: number; w: number } | null {
+    if (!this.physics) return null;
+    return this.physics.getRotation(barrelId);
   }
 
   /**
@@ -161,6 +217,19 @@ export class BarrelManager {
       }
     }
 
+    // Apply physics explosion force to nearby bodies
+    // Physics radius is larger than damage radius for more dramatic effect
+    if (this.physics) {
+      const physicsRadius = this.config.explosionRadius * 2.5; // Larger physics effect
+      this.physics.applyBarrelExplosion(
+        barrel.position,
+        physicsRadius,
+        barrelId
+      );
+      // Remove physics body
+      this.physics.removeBody(barrelId);
+    }
+
     // Remove exploded barrel
     this.barrels.delete(barrelId);
 
@@ -214,6 +283,12 @@ export class BarrelManager {
    * Clear all barrels (for map reset)
    */
   clear(): void {
+    // Remove all physics bodies
+    if (this.physics) {
+      for (const barrel of this.barrels.values()) {
+        this.physics.removeBody(barrel.id);
+      }
+    }
     this.barrels.clear();
     this.pendingChainReactions = [];
     this.nextBarrelId = 0;

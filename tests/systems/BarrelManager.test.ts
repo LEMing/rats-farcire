@@ -99,9 +99,9 @@ describe('BarrelManager', () => {
 
       expect(result).not.toBeNull();
       expect(result?.position).toEqual({ x: 5, y: 0.5, z: 10 });
-      expect(result?.radius).toBe(4); // default config
+      expect(result?.radius).toBe(6); // default config
       expect(result?.damage).toBe(80); // default config
-      expect(result?.knockbackForce).toBe(15); // default config
+      expect(result?.knockbackForce).toBe(50); // default config
     });
 
     it('should remove barrel after explosion', () => {
@@ -155,34 +155,34 @@ describe('BarrelManager', () => {
 
     it('should trigger chain reactions after delay', () => {
       const barrel1 = manager.spawnBarrel({ x: 5, y: 0.5, z: 10 });
-      manager.spawnBarrel({ x: 7, y: 0.5, z: 10 });
+      manager.spawnBarrel({ x: 6.5, y: 0.5, z: 10 }); // Within chain radius of 3
 
       manager.explodeBarrel(barrel1.id, 1000);
 
       // Before delay
-      let explosions = manager.update(1050);
+      let explosions = manager.update(1500);
       expect(explosions).toHaveLength(0);
 
-      // After delay (100ms default)
-      explosions = manager.update(1100);
+      // After delay (600ms default)
+      explosions = manager.update(1700);
       expect(explosions).toHaveLength(1);
     });
 
     it('should cascade multiple chain reactions', () => {
-      // Line of barrels
+      // Line of barrels within chain radius (< 3 units apart)
       manager.spawnBarrel({ x: 5, y: 0.5, z: 10 });
-      manager.spawnBarrel({ x: 8, y: 0.5, z: 10 });
-      manager.spawnBarrel({ x: 11, y: 0.5, z: 10 });
+      manager.spawnBarrel({ x: 7, y: 0.5, z: 10 });
+      manager.spawnBarrel({ x: 9, y: 0.5, z: 10 });
 
       // Explode first
       manager.explodeBarrel('barrel-0', 1000);
 
-      // First chain reaction
-      let explosions = manager.update(1100);
+      // First chain reaction (after 600ms delay)
+      let explosions = manager.update(1700);
       expect(explosions).toHaveLength(1);
 
-      // Second chain reaction
-      explosions = manager.update(1200);
+      // Second chain reaction (600ms after first)
+      explosions = manager.update(2400);
       expect(explosions).toHaveLength(1);
 
       // All barrels gone

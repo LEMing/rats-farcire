@@ -5,6 +5,7 @@ import { TardisFactory, TardisInstance } from './TardisFactory';
 import { MapDecorations } from './MapDecorations';
 import { Zone, getZoneForRoomType } from './ZoneConfig';
 import { getTextureManager } from './TextureManager';
+import type { PropManager } from '../systems/PropManager';
 
 /**
  * MapRenderer - Handles all map-related rendering
@@ -47,6 +48,13 @@ export class MapRenderer {
   // Explosive barrels
   private explosiveBarrels: Map<string, THREE.Group> = new Map();
 
+  // Physics debris
+  private debris: Map<string, THREE.Mesh> = new Map();
+
+  // Physics props (crates, barrels, etc.)
+  private propManager: PropManager | null = null;
+  private pendingProps: Array<{ type: 'crate' | 'barrel' | 'crateStack'; x: number; z: number; mesh: THREE.Group; tipped?: boolean }> = [];
+
   // Time tracking for animations
   private time = 0;
 
@@ -57,6 +65,63 @@ export class MapRenderer {
 
   constructor(deps: MapRendererDependencies) {
     this.deps = deps;
+  }
+
+  /**
+   * Set PropManager for physics props
+   * Registers any pending props that were created before physics was ready
+   */
+  setPropManager(propManager: PropManager): void {
+    this.propManager = propManager;
+
+    console.log(`[MapRenderer] Registering ${this.pendingProps.length} pending props`);
+
+    // Register all pending props
+    for (const prop of this.pendingProps) {
+      switch (prop.type) {
+        case 'crate':
+          propManager.spawnCrate(prop.x, prop.z, prop.mesh);
+          break;
+        case 'barrel':
+          propManager.spawnBarrelProp(prop.x, prop.z, prop.mesh, prop.tipped ?? false);
+          break;
+        case 'crateStack':
+          propManager.spawnCrateStack(prop.x, prop.z, prop.mesh);
+          break;
+      }
+    }
+    this.pendingProps = [];
+    console.log(`[MapRenderer] PropManager set, total props: ${propManager.getPropCount()}`);
+  }
+
+  /**
+   * Track a prop for physics (call when creating decorations)
+   */
+  private trackProp(type: 'crate' | 'barrel' | 'crateStack', x: number, z: number, mesh: THREE.Group, tipped?: boolean): void {
+    if (this.propManager) {
+      // PropManager already available, register directly
+      switch (type) {
+        case 'crate':
+          this.propManager.spawnCrate(x, z, mesh);
+          break;
+        case 'barrel':
+          this.propManager.spawnBarrelProp(x, z, mesh, tipped ?? false);
+          break;
+        case 'crateStack':
+          this.propManager.spawnCrateStack(x, z, mesh);
+          break;
+      }
+    } else {
+      // Store for later registration
+      this.pendingProps.push({ type, x, z, mesh, tipped });
+    }
+  }
+
+  /**
+   * Debug: Get pending prop count
+   */
+  getPendingPropCount(): number {
+    return this.pendingProps.length;
   }
 
   // ============================================================================
@@ -540,6 +605,7 @@ export class MapRenderer {
       if (Math.random() < 0.5) {
         const crate = MapDecorations.createCrate(pos.x, pos.z);
         this.deps.scene.add(crate);
+        this.trackProp('crate', pos.x, pos.z, crate);
       }
     }
 
@@ -548,6 +614,7 @@ export class MapRenderer {
       const pos = this.getRandomRoomPosition(room);
       const barrel = MapDecorations.createBarrel(pos.x, pos.z, false);
       this.deps.scene.add(barrel);
+      this.trackProp('barrel', pos.x, pos.z, barrel, false);
     }
   }
 
@@ -628,9 +695,12 @@ export class MapRenderer {
       if (Math.random() > 0.5) {
         const crate = MapDecorations.createCrate(pos.x, pos.z);
         this.deps.scene.add(crate);
+        this.trackProp('crate', pos.x, pos.z, crate);
       } else {
-        const barrel = MapDecorations.createBarrel(pos.x, pos.z, Math.random() < 0.3);
+        const tipped = Math.random() < 0.3;
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, tipped);
         this.deps.scene.add(barrel);
+        this.trackProp('barrel', pos.x, pos.z, barrel, tipped);
       }
     }
 
@@ -658,6 +728,7 @@ export class MapRenderer {
     for (const pos of stackPositions) {
       const stack = MapDecorations.createCrateStack(pos.x, pos.z);
       this.deps.scene.add(stack);
+      this.trackProp('crateStack', pos.x, pos.z, stack);
     }
 
     // Scattered crates only (no decorative barrels - explosive barrels are spawned separately)
@@ -666,6 +737,7 @@ export class MapRenderer {
     for (const pos of scatterPositions) {
       const crate = MapDecorations.createCrate(pos.x, pos.z);
       this.deps.scene.add(crate);
+      this.trackProp('crate', pos.x, pos.z, crate);
     }
 
     // Metal debris on the floor (industrial zone)
@@ -755,9 +827,11 @@ export class MapRenderer {
       if (Math.random() > 0.5) {
         const crate = MapDecorations.createCrate(pos.x, pos.z);
         this.deps.scene.add(crate);
+        this.trackProp('crate', pos.x, pos.z, crate);
       } else {
         const barrel = MapDecorations.createBarrel(pos.x, pos.z, true); // Always tipped
         this.deps.scene.add(barrel);
+        this.trackProp('barrel', pos.x, pos.z, barrel, true);
       }
     }
 
@@ -886,9 +960,12 @@ export class MapRenderer {
       } else if (rand < 0.60) {
         const crate = MapDecorations.createCrate(pos.x, pos.z);
         this.deps.scene.add(crate);
+        this.trackProp('crate', pos.x, pos.z, crate);
       } else if (rand < 0.80) {
-        const barrel = MapDecorations.createBarrel(pos.x, pos.z, Math.random() < 0.25);
+        const tipped = Math.random() < 0.25;
+        const barrel = MapDecorations.createBarrel(pos.x, pos.z, tipped);
         this.deps.scene.add(barrel);
+        this.trackProp('barrel', pos.x, pos.z, barrel, tipped);
       } else {
         const smallDebris = MapDecorations.createSmallDebris(pos.x, pos.z);
         this.deps.scene.add(smallDebris);
@@ -1334,6 +1411,89 @@ export class MapRenderer {
       this.deps.scene.remove(barrelGroup);
     }
     this.explosiveBarrels.clear();
+  }
+
+  /**
+   * Update barrel position and rotation from physics
+   */
+  updateBarrelTransform(
+    barrelId: string,
+    position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number; w: number } | null
+  ): void {
+    const barrelGroup = this.explosiveBarrels.get(barrelId);
+    if (!barrelGroup) return;
+
+    barrelGroup.position.set(position.x, position.y, position.z);
+
+    if (rotation) {
+      barrelGroup.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    }
+  }
+
+  // ============================================================================
+  // Physics Debris System
+  // ============================================================================
+
+  /**
+   * Spawn a debris piece at position
+   */
+  spawnDebris(debrisId: string, position: { x: number; y: number; z: number }, size: number): void {
+    if (this.debris.has(debrisId)) return;
+
+    const geometry = new THREE.BoxGeometry(size, size, size);
+    const material = new THREE.MeshLambertMaterial({
+      color: 0x8b4513, // Brown wood color
+      emissive: 0x2a1506,
+      emissiveIntensity: 0.2,
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(position.x, position.y, position.z);
+    mesh.castShadow = true;
+
+    this.deps.scene.add(mesh);
+    this.debris.set(debrisId, mesh);
+  }
+
+  /**
+   * Update debris position and rotation from physics
+   */
+  updateDebrisTransform(
+    debrisId: string,
+    position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number; w: number }
+  ): void {
+    const mesh = this.debris.get(debrisId);
+    if (!mesh) return;
+
+    mesh.position.set(position.x, position.y, position.z);
+    mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+  }
+
+  /**
+   * Remove debris piece
+   */
+  removeDebris(debrisId: string): void {
+    const mesh = this.debris.get(debrisId);
+    if (mesh) {
+      this.deps.scene.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+      this.debris.delete(debrisId);
+    }
+  }
+
+  /**
+   * Clear all debris
+   */
+  clearDebris(): void {
+    for (const [, mesh] of this.debris) {
+      this.deps.scene.remove(mesh);
+      mesh.geometry.dispose();
+      (mesh.material as THREE.Material).dispose();
+    }
+    this.debris.clear();
   }
 
   // ============================================================================

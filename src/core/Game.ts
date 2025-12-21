@@ -77,6 +77,13 @@ export class Game {
     this.tickInterval = 1000 / (config.tickRate ?? TICK_RATE);
     this.hitstopDuration = config.hitstopDuration ?? 35; // ms - punchy hit feedback
 
+    // Mouse wheel zoom
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 1 : -1; // Positive = zoom out, negative = zoom in
+      (this.renderer as Renderer).adjustZoom(delta);
+    }, { passive: false });
+
     // Initial resize
     this.resize();
   }

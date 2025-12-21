@@ -47,6 +47,9 @@ import { ProjectileManager } from '../systems/ProjectileManager';
 import { PickupManager } from '../systems/PickupManager';
 import { LastStandSystem } from '../systems/LastStandSystem';
 import { BarrelManager, ExplosionResult } from '../systems/BarrelManager';
+import { PropManager } from '../systems/PropManager';
+import { PhysicsManager } from '../physics/PhysicsManager';
+import { PhysicsColliderBuilder } from '../physics/PhysicsColliderBuilder';
 
 // ============================================================================
 // Local Game Loop (Singleplayer)
@@ -79,9 +82,14 @@ export class LocalGameLoop {
   private pickupManager!: PickupManager;
   private lastStandSystem!: LastStandSystem;
   private barrelManager!: BarrelManager;
+  private propManager!: PropManager;
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
+
+  // Physics system (optional - initialized async)
+  private physics: PhysicsManager | null = null;
+  private physicsInitialized = false;
 
   private gameTime = 0;
 
@@ -194,8 +202,68 @@ export class LocalGameLoop {
         this.renderer.createThermobaricEffect(result.position, result.radius);
         this.renderer.addScreenShake(0.4);
         getAudioManager()?.playThermobaric(result.position);
+
+        // Spawn physics debris if physics is available
+        if (this.physics && this.physicsInitialized) {
+          const debrisIds = this.physics.spawnDebris(result.position, 8, 15);
+          const mapRenderer = this.renderer.getMapRenderer();
+          for (const debrisId of debrisIds) {
+            const transform = this.physics.getDebrisTransform(debrisId);
+            if (transform) {
+              const size = 0.05 + Math.random() * 0.1;
+              mapRenderer.spawnDebris(debrisId, transform.pos, size);
+            }
+          }
+        }
       },
     });
+
+    // Initialize prop manager for physics-enabled decorations
+    this.propManager = new PropManager();
+
+    // Start physics initialization (async)
+    this.initPhysics();
+  }
+
+  /**
+   * Initialize physics system (async)
+   * Creates Rapier world, builds map colliders, and connects to barrel manager
+   */
+  private async initPhysics(): Promise<void> {
+    try {
+      this.physics = new PhysicsManager();
+      await this.physics.init();
+
+      // Build static wall colliders from map
+      const colliderBuilder = new PhysicsColliderBuilder();
+      colliderBuilder.buildFromMap(this.physics, this.mapData);
+
+      // Connect physics to barrel manager
+      this.barrelManager.setPhysicsManager(this.physics);
+
+      // IMPORTANT: First register pending props from MapRenderer, THEN connect physics
+      // This order matters because props are stored in MapRenderer's pendingProps
+      // until PropManager is connected
+      this.renderer.getMapRenderer().setPropManager(this.propManager);
+
+      // Now that props are registered, connect physics to create bodies
+      this.propManager.setPhysicsManager(this.physics);
+
+      console.log(`[LocalGameLoop] Physics initialized, props: ${this.propManager.getPropCount()}`);
+      this.physicsInitialized = true;
+    } catch (error) {
+      console.error('[Physics] Failed to initialize:', error);
+      // Game continues without physics
+      this.physics = null;
+      this.physicsInitialized = false;
+    }
+  }
+
+  /**
+   * Check if physics is ready
+   */
+  isPhysicsReady(): boolean {
+    return this.physicsInitialized && this.physics !== null;
   }
 
   spawnLocalPlayer(position: Vec2): void {
@@ -345,6 +413,9 @@ export class LocalGameLoop {
     // Update enemies
     this.updateEnemies(dt);
 
+    // Step physics simulation and sync positions
+    this.updatePhysics();
+
     // Update projectiles
     this.updateProjectiles(dt);
 
@@ -410,6 +481,50 @@ export class LocalGameLoop {
     this.renderer.setLowHealthIntensity(healthPercent);
   }
 
+  /**
+   * Step physics simulation and sync positions
+   */
+  private updatePhysics(): void {
+    if (!this.physics || !this.physicsInitialized) return;
+
+    // Step the physics world
+    this.physics.step();
+
+    // Sync barrel positions from physics
+    this.barrelManager.syncFromPhysics();
+
+    // Update barrel visuals with physics positions and rotations
+    for (const barrel of this.barrelManager.getBarrels().values()) {
+      const rotation = this.barrelManager.getBarrelRotation(barrel.id);
+      this.renderer.getMapRenderer().updateBarrelTransform(
+        barrel.id,
+        barrel.position,
+        rotation
+      );
+    }
+
+    // Sync prop positions from physics (crates, decorative barrels, etc.)
+    this.propManager.syncFromPhysics();
+
+    // Update debris (remove expired)
+    const removedDebris = this.physics.updateDebris(this.gameTime);
+    for (const debrisId of removedDebris) {
+      this.renderer.getMapRenderer().removeDebris(debrisId);
+    }
+
+    // Update debris visuals
+    for (const debrisId of this.physics.getDebrisIds()) {
+      const transform = this.physics.getDebrisTransform(debrisId);
+      if (transform) {
+        this.renderer.getMapRenderer().updateDebrisTransform(
+          debrisId,
+          transform.pos,
+          transform.rot
+        );
+      }
+    }
+  }
+
   private updatePlayer(input: InputState, dt: number): void {
     if (!this.player) return;
 
@@ -422,6 +537,21 @@ export class LocalGameLoop {
       isDead: e.state === 'dead',
     }));
     this.playerController.processInput(this.player, input, this.gameTime, dt, enemies);
+
+    // Resolve collision with props (player can't walk through crates/barrels)
+    // This pushes the player out and applies impulse to props
+    if (this.physicsInitialized) {
+      const resolved = this.propManager.resolveCollision(
+        this.player.position.x,
+        this.player.position.z,
+        PLAYER_HITBOX_RADIUS,
+        8 // Push force on props
+      );
+      if (resolved.collided) {
+        this.player.position.x = resolved.x;
+        this.player.position.z = resolved.z;
+      }
+    }
 
     // Weapon switching (1-5 keys) - delegate to WeaponSystem
     if (input.weaponSlot !== null) {
@@ -498,6 +628,22 @@ export class LocalGameLoop {
     // Visual effect - expanding fire ring
     this.renderer.addScreenShake(0.5);
 
+    // Apply physics explosion to barrels and debris
+    if (this.physics && this.physicsInitialized) {
+      this.physics.applyThermobaricExplosion(position, radius * 2);
+
+      // Spawn physics debris
+      const debrisIds = this.physics.spawnDebris(position, 12, 25);
+      const mapRenderer = this.renderer.getMapRenderer();
+      for (const debrisId of debrisIds) {
+        const transform = this.physics.getDebrisTransform(debrisId);
+        if (transform) {
+          const size = 0.05 + Math.random() * 0.1;
+          mapRenderer.spawnDebris(debrisId, transform.pos, size);
+        }
+      }
+    }
+
     // Damage all enemies in radius
     for (const [enemyId, enemy] of this.enemies) {
       if (enemy.state === 'dead') continue;
@@ -517,11 +663,11 @@ export class LocalGameLoop {
         const screenPos = this.renderer.worldToScreen(enemy.position);
         this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true);
 
-        // Strong knockback
+        // Strong knockback - increased for dramatic effect
         const knockbackVel = calculateKnockback(
           { x: position.x, y: position.z },
           { x: enemy.position.x, y: enemy.position.z },
-          10
+          60  // Much stronger knockback
         );
         enemy.knockbackVelocity = knockbackVel;
 
@@ -652,6 +798,23 @@ export class LocalGameLoop {
           this.renderer.getMapRenderer().removeExplosiveBarrel(hitBarrel.id);
         }
         toRemove.push(id);
+        continue;
+      }
+
+      // Check prop collision for projectiles (crates, decorative barrels)
+      const hitProp = this.propManager.checkCollision(proj.position.x, proj.position.z, PROJECTILE_HITBOX_RADIUS);
+      if (hitProp) {
+        // Apply gentle impulse to prop in projectile direction
+        const impulseForce = 1 + proj.damage * 0.05; // Subtle push based on damage
+        const velMag = Math.sqrt(proj.velocity.x * proj.velocity.x + proj.velocity.y * proj.velocity.y);
+        const normX = velMag > 0 ? proj.velocity.x / velMag : 0;
+        const normZ = velMag > 0 ? proj.velocity.y / velMag : 0; // velocity.y is Z in 2D
+        this.propManager.applyImpulse(hitProp.id, {
+          x: normX * impulseForce,
+          y: 0.1, // Tiny upward
+          z: normZ * impulseForce,
+        });
+        // Don't remove projectile - let it pass through props
       }
     }
 
@@ -850,7 +1013,24 @@ export class LocalGameLoop {
     getAudioManager()?.playPositional('rocket_explode', explosionPos);
 
     // Area damage to nearby enemies
-    const explosionRadius = 3;
+    const explosionRadius = 4;  // Increased radius
+
+    // Apply physics explosion to barrels
+    if (this.physics && this.physicsInitialized) {
+      this.physics.applyRocketExplosion(explosionPos, explosionRadius * 2);
+
+      // Spawn physics debris
+      const debrisIds = this.physics.spawnDebris(explosionPos, 6, 15);
+      const mapRenderer = this.renderer.getMapRenderer();
+      for (const debrisId of debrisIds) {
+        const transform = this.physics.getDebrisTransform(debrisId);
+        if (transform) {
+          const size = 0.04 + Math.random() * 0.08;
+          mapRenderer.spawnDebris(debrisId, transform.pos, size);
+        }
+      }
+    }
+
     for (const [enemyId, enemy] of this.enemies) {
       if (enemy.state === 'dead') continue;
 
@@ -865,11 +1045,11 @@ export class LocalGameLoop {
         const damage = Math.floor(40 * damageFalloff);
         enemy.health -= damage;
 
-        // Knockback from explosion
+        // Knockback from explosion - increased
         const explosionKnockback = calculateKnockback(
           { x: explosionPos.x, y: explosionPos.z },
           { x: enemy.position.x, y: enemy.position.z },
-          6
+          30  // Stronger knockback
         );
         enemy.knockbackVelocity = explosionKnockback;
 
@@ -1285,6 +1465,24 @@ export class LocalGameLoop {
       this.waveManager.getWaveNumber(),
       dt
     );
+
+    // Resolve enemy collision with props (enemies can't walk through crates/barrels)
+    if (this.physicsInitialized) {
+      for (const enemy of this.enemies.values()) {
+        if (enemy.state === 'dead') continue;
+        const config = ENEMY_CONFIGS[enemy.enemyType];
+        const resolved = this.propManager.resolveCollision(
+          enemy.position.x,
+          enemy.position.z,
+          config.hitboxRadius,
+          enemy.enemyType === 'tank' ? 15 : 6 // Tanks push props harder
+        );
+        if (resolved.collided) {
+          enemy.position.x = resolved.x;
+          enemy.position.z = resolved.z;
+        }
+      }
+    }
 
     // Handle enemy projectiles - add to game and register noise
     for (const projectile of result.enemyProjectiles) {
