@@ -33,13 +33,37 @@ export interface NoiseEvent {
 // DetectionSystem
 // ============================================================================
 
+// LOS cache entry
+interface LOSCacheEntry {
+  result: boolean;
+  timestamp: number;
+}
+
 export class DetectionSystem {
   private mapData: MapData;
   private noiseEvents: NoiseEvent[] = [];
   private readonly NOISE_LIFETIME = 500; // ms
 
+  // LOS cache - avoids expensive raycasting every frame
+  private readonly losCache = new Map<string, LOSCacheEntry>();
+  private readonly LOS_CACHE_TTL = 150; // ms - cache results for 150ms
+  private readonly LOS_CACHE_MAX_SIZE = 500;
+  private losCacheCleanupCounter = 0;
+
   constructor(mapData: MapData) {
     this.mapData = mapData;
+  }
+
+  /**
+   * Get LOS cache key for two positions (rounded to reduce cache misses)
+   */
+  private getLOSCacheKey(from: Vec2, to: Vec2): string {
+    // Round to 0.5 units to increase cache hits while maintaining accuracy
+    const fx = Math.round(from.x * 2) / 2;
+    const fy = Math.round(from.y * 2) / 2;
+    const tx = Math.round(to.x * 2) / 2;
+    const ty = Math.round(to.y * 2) / 2;
+    return `${fx},${fy}-${tx},${ty}`;
   }
 
   /**
@@ -226,9 +250,59 @@ export class DetectionSystem {
   }
 
   /**
-   * Check line of sight using Bresenham's algorithm
+   * Check line of sight using Bresenham's algorithm (with caching)
    */
   hasLineOfSight(from: Vec2, to: Vec2): boolean {
+    const now = Date.now();
+    const cacheKey = this.getLOSCacheKey(from, to);
+
+    // Check cache first
+    const cached = this.losCache.get(cacheKey);
+    if (cached && now - cached.timestamp < this.LOS_CACHE_TTL) {
+      return cached.result;
+    }
+
+    // Calculate LOS
+    const result = this.calculateLineOfSight(from, to);
+
+    // Cache result
+    this.losCache.set(cacheKey, { result, timestamp: now });
+
+    // Periodic cache cleanup (every 100 calls)
+    if (++this.losCacheCleanupCounter >= 100) {
+      this.losCacheCleanupCounter = 0;
+      this.cleanupLOSCache(now);
+    }
+
+    return result;
+  }
+
+  /**
+   * Clean up expired LOS cache entries
+   */
+  private cleanupLOSCache(now: number): void {
+    // Remove expired entries
+    for (const [key, entry] of this.losCache) {
+      if (now - entry.timestamp > this.LOS_CACHE_TTL * 2) {
+        this.losCache.delete(key);
+      }
+    }
+
+    // If still too large, remove oldest entries
+    if (this.losCache.size > this.LOS_CACHE_MAX_SIZE) {
+      const entriesToRemove = this.losCache.size - this.LOS_CACHE_MAX_SIZE;
+      const iterator = this.losCache.keys();
+      for (let i = 0; i < entriesToRemove; i++) {
+        const key = iterator.next().value;
+        if (key) this.losCache.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Actual LOS calculation using Bresenham's algorithm
+   */
+  private calculateLineOfSight(from: Vec2, to: Vec2): boolean {
     const fromTile = this.worldToTile(from);
     const toTile = this.worldToTile(to);
 

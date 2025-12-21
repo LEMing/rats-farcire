@@ -1125,10 +1125,11 @@ export class MapRenderer {
     light.position.y = 0.8;
     cellGroup.add(light);
 
-    // Store metadata
+    // Store metadata and cache mesh references (avoids getObjectByName lookups per frame)
     cellGroup.userData.mapObject = true;
     cellGroup.userData.cellId = cellId;
     cellGroup.userData.baseY = 0.8;
+    cellGroup.userData.meshes = { core, topCap, bottomCap, glow, ring1, ring2, light };
 
     this.deps.scene.add(cellGroup);
     this.powerCells.set(cellId, cellGroup);
@@ -1141,12 +1142,14 @@ export class MapRenderer {
     const pulse = Math.sin(this.time * 3) * 0.5 + 0.5;
 
     for (const [, cellGroup] of this.powerCells) {
-      const core = cellGroup.getObjectByName('core') as THREE.Mesh;
-      const glow = cellGroup.getObjectByName('glow') as THREE.Mesh;
-      const topCap = cellGroup.getObjectByName('topCap') as THREE.Mesh;
-      const bottomCap = cellGroup.getObjectByName('bottomCap') as THREE.Mesh;
-      const ring1 = cellGroup.getObjectByName('ring1') as THREE.Mesh;
-      const ring2 = cellGroup.getObjectByName('ring2') as THREE.Mesh;
+      // Use cached mesh references (set during creation) instead of getObjectByName
+      const meshes = cellGroup.userData.meshes;
+      if (!meshes) continue;
+
+      const { core, topCap, bottomCap, glow, ring1, ring2, light } = meshes as {
+        core: THREE.Mesh; topCap: THREE.Mesh; bottomCap: THREE.Mesh;
+        glow: THREE.Mesh; ring1: THREE.Mesh; ring2: THREE.Mesh; light: THREE.PointLight;
+      };
       const baseY = cellGroup.userData.baseY || 0.8;
 
       // Slow rotation of core battery
@@ -1183,8 +1186,7 @@ export class MapRenderer {
         ring2.position.y = core ? core.position.y : baseY;
       }
 
-      // Update light intensity with pulse
-      const light = cellGroup.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight;
+      // Update light intensity with pulse (using cached reference)
       if (light) {
         light.intensity = 1.0 + pulse * 0.5;
         if (core) light.position.y = core.position.y;
@@ -1277,10 +1279,11 @@ export class MapRenderer {
     light.position.y = 0.8;
     cellGroup.add(light);
 
-    // Store metadata
+    // Store metadata and cache mesh references (avoids getObjectByName lookups per frame)
     cellGroup.userData.mapObject = true;
     cellGroup.userData.cellId = cellId;
     cellGroup.userData.baseY = 0.8;
+    cellGroup.userData.meshes = { core, topCap, bottomCap, glow, ring1, ring2, light };
 
     this.deps.scene.add(cellGroup);
     this.powerCells.set(cellId, cellGroup);

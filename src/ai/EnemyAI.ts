@@ -105,6 +105,9 @@ interface EnemyPath {
   timestamp: number;
 }
 
+// Function type for getting nearby enemies (uses spatial hash)
+export type GetNearbyEnemiesFn = (x: number, z: number, radius: number) => readonly { id: string; x: number; z: number }[];
+
 export class EnemyAI {
   private mapData: MapData;
   private pathCache: Map<string, Vec2[]> = new Map();
@@ -120,8 +123,18 @@ export class EnemyAI {
   private readonly WAYPOINT_REACHED_DIST = 0.8; // Distance to consider waypoint reached
   private readonly LOS_CHECK_DISTANCE = 15; // Max distance for line-of-sight
 
+  // Optional function to get nearby enemies (for O(1) separation instead of O(n))
+  private getNearbyEnemies: GetNearbyEnemiesFn | null = null;
+
   constructor(mapData: MapData) {
     this.mapData = mapData;
+  }
+
+  /**
+   * Set function to get nearby enemies (uses spatial hash for O(1) lookup)
+   */
+  setGetNearbyEnemies(fn: GetNearbyEnemiesFn): void {
+    this.getNearbyEnemies = fn;
   }
 
   /**
@@ -302,6 +315,7 @@ export class EnemyAI {
 
   /**
    * Calculate separation force from nearby enemies
+   * Uses spatial hash when available for O(nearby) instead of O(all)
    */
   private calculateSeparation(enemy: EnemyState, allEnemies: Iterable<EnemyState>): Vec2 {
     const config = ENEMY_CONFIGS[enemy.enemyType];
@@ -312,21 +326,41 @@ export class EnemyAI {
     let separationY = 0;
     let count = 0;
 
-    for (const other of allEnemies) {
-      if (other.id === enemy.id || other.state === 'dead') continue;
+    // Use spatial hash for O(nearby) lookup if available
+    if (this.getNearbyEnemies) {
+      const nearby = this.getNearbyEnemies(enemy.position.x, enemy.position.z, separationRadius);
+      for (const other of nearby) {
+        if (other.id === enemy.id) continue;
 
-      const otherPos: Vec2 = { x: other.position.x, y: other.position.z };
-      const dist = distance(enemyPos, otherPos);
+        const dist = distance(enemyPos, { x: other.x, y: other.z });
 
-      if (dist < separationRadius && dist > 0) {
-        // Push away from other enemy
-        const pushX = (enemyPos.x - otherPos.x) / dist;
-        const pushY = (enemyPos.y - otherPos.y) / dist;
-        const strength = (separationRadius - dist) / separationRadius;
+        if (dist < separationRadius && dist > 0) {
+          const pushX = (enemyPos.x - other.x) / dist;
+          const pushY = (enemyPos.y - other.z) / dist;
+          const strength = (separationRadius - dist) / separationRadius;
 
-        separationX += pushX * strength;
-        separationY += pushY * strength;
-        count++;
+          separationX += pushX * strength;
+          separationY += pushY * strength;
+          count++;
+        }
+      }
+    } else {
+      // Fallback to iterating all enemies (O(n))
+      for (const other of allEnemies) {
+        if (other.id === enemy.id || other.state === 'dead') continue;
+
+        const otherPos: Vec2 = { x: other.position.x, y: other.position.z };
+        const dist = distance(enemyPos, otherPos);
+
+        if (dist < separationRadius && dist > 0) {
+          const pushX = (enemyPos.x - otherPos.x) / dist;
+          const pushY = (enemyPos.y - otherPos.y) / dist;
+          const strength = (separationRadius - dist) / separationRadius;
+
+          separationX += pushX * strength;
+          separationY += pushY * strength;
+          count++;
+        }
       }
     }
 

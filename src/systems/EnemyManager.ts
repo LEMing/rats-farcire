@@ -60,6 +60,11 @@ export class EnemyManager {
   private spatialHash = new SpatialHash<SpatialEntity>(4);
   private callbacks: EnemyManagerCallbacks;
 
+  // Staggered detection - update only a subset of enemies each frame
+  private detectionFrameCounter = 0;
+  private readonly DETECTION_STAGGER_FRAMES = 3; // Update 1/3 of enemies per frame
+  private readonly cachedDetections = new Map<string, { result: import('../ai/DetectionSystem').DetectionResult; frame: number }>();
+
   constructor(
     mapData: MapData,
     callbacks: EnemyManagerCallbacks = {}
@@ -69,6 +74,9 @@ export class EnemyManager {
     this.behaviorSystem = new BehaviorStateMachine(mapData);
     this.weaponSystem = new EnemyWeaponSystem();
     this.callbacks = callbacks;
+
+    // Connect AI to spatial hash for O(nearby) separation instead of O(n)
+    this.ai.setGetNearbyEnemies((x, z, radius) => this.spatialHash.getNearby(x, z, radius));
   }
 
   /**
@@ -134,6 +142,11 @@ export class EnemyManager {
     const enemyProjectiles: ProjectileState[] = [];
     const playerPos2D: Vec2 = { x: playerPos.x, y: playerPos.z };
 
+    // Increment frame counter for staggered detection
+    this.detectionFrameCounter++;
+    const currentFrame = this.detectionFrameCounter;
+    let enemyIndex = 0;
+
     for (const enemy of enemies.values()) {
       if (enemy.state === 'dead') continue;
 
@@ -143,9 +156,29 @@ export class EnemyManager {
       // Apply knockback first
       this.applyKnockback(enemy, dtSeconds);
 
-      // Get detection result
+      // Staggered detection - only update 1/3 of enemies per frame
+      // Use cached result for others (detection changes slowly)
       const detectionSystem = this.behaviorSystem.getDetectionSystem();
-      const detection = detectionSystem.updateDetection(enemy, playerPos, dtSeconds);
+      let detection: import('../ai/DetectionSystem').DetectionResult;
+
+      const shouldUpdateDetection = (enemyIndex % this.DETECTION_STAGGER_FRAMES) === (currentFrame % this.DETECTION_STAGGER_FRAMES);
+      enemyIndex++;
+
+      if (shouldUpdateDetection) {
+        // Full detection update this frame
+        detection = detectionSystem.updateDetection(enemy, playerPos, dtSeconds * this.DETECTION_STAGGER_FRAMES);
+        this.cachedDetections.set(enemy.id, { result: detection, frame: currentFrame });
+      } else {
+        // Use cached detection
+        const cached = this.cachedDetections.get(enemy.id);
+        if (cached) {
+          detection = cached.result;
+        } else {
+          // No cache yet, do full update
+          detection = detectionSystem.updateDetection(enemy, playerPos, dtSeconds);
+          this.cachedDetections.set(enemy.id, { result: detection, frame: currentFrame });
+        }
+      }
 
       // Run behavior state machine
       const behaviorContext: BehaviorContext = {
@@ -335,6 +368,7 @@ export class EnemyManager {
     this.spatialHash.remove(enemyId);
     this.weaponSystem.removeEnemy(enemyId);
     this.behaviorSystem.getCoverSystem().releaseCover(enemyId);
+    this.cachedDetections.delete(enemyId);
   }
 
   /**
