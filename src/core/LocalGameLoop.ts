@@ -10,7 +10,7 @@ import type {
 } from '@shared/types';
 import {
   PLAYER_MAX_HEALTH,
-  PLAYER_START_AMMO,
+  WEAPON_AMMO_CONFIGS,
   PLAYER_HITBOX_RADIUS,
   PROJECTILE_HITBOX_RADIUS,
   ENEMY_CONFIGS,
@@ -205,7 +205,13 @@ export class LocalGameLoop {
       velocity: { x: 0, y: 0 },
       health: PLAYER_MAX_HEALTH,
       maxHealth: PLAYER_MAX_HEALTH,
-      ammo: PLAYER_START_AMMO,
+      ammo: {
+        pistol: WEAPON_AMMO_CONFIGS.pistol.startAmmo,
+        shotgun: WEAPON_AMMO_CONFIGS.shotgun.startAmmo,
+        machinegun: WEAPON_AMMO_CONFIGS.machinegun.startAmmo,
+        rifle: WEAPON_AMMO_CONFIGS.rifle.startAmmo,
+        rocket: WEAPON_AMMO_CONFIGS.rocket.startAmmo,
+      },
       score: 0,
       isDead: false,
       lastShootTime: 0,
@@ -431,10 +437,12 @@ export class LocalGameLoop {
 
     // Shooting - delegate to WeaponSystem
     if (input.shooting) {
-      // During Last Stand: unlimited ammo (ensure we have enough to shoot)
+      // During Last Stand: unlimited ammo for current weapon
       const isLastStand = this.lastStandSystem.isActive();
-      if (isLastStand && this.player.ammo < 100) {
-        this.player.ammo = 100;
+      const currentWeapon = this.player.currentWeapon;
+      const maxAmmo = WEAPON_AMMO_CONFIGS[currentWeapon].maxAmmo;
+      if (isLastStand && this.player.ammo[currentWeapon] < maxAmmo) {
+        this.player.ammo[currentWeapon] = maxAmmo;
       }
 
       const shootResult = this.weaponSystem.shoot(this.player, this.gameTime);
@@ -444,7 +452,7 @@ export class LocalGameLoop {
 
         // During Last Stand: restore ammo after shooting (unlimited)
         if (isLastStand) {
-          this.player.ammo = 100;
+          this.player.ammo[currentWeapon] = maxAmmo;
         }
 
         // Add projectiles to game

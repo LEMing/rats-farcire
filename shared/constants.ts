@@ -21,8 +21,7 @@ export const CORRIDOR_WIDTH = 2;
 // Player
 export const PLAYER_SPEED = 8; // units per second
 export const PLAYER_MAX_HEALTH = 100;
-export const PLAYER_START_AMMO = 150; // generous starting ammo
-export const PLAYER_MAX_AMMO = 300;
+// Per-weapon ammo now uses WEAPON_AMMO_CONFIGS
 export const PLAYER_HITBOX_RADIUS = 0.35;
 
 // Wall collision buffer - keeps entities visible (larger than hitbox for camera visibility)
@@ -90,6 +89,35 @@ export const WEAPON_CONFIGS = {
 } as const;
 
 export const WEAPON_SLOT_ORDER: WeaponType[] = ['pistol', 'shotgun', 'machinegun', 'rifle', 'rocket'];
+
+// Per-weapon ammo configuration
+export const WEAPON_AMMO_CONFIGS = {
+  pistol: {
+    startAmmo: 200,
+    maxAmmo: 400,
+    pickupAmmo: 50,
+  },
+  shotgun: {
+    startAmmo: 60,
+    maxAmmo: 120,
+    pickupAmmo: 20,
+  },
+  machinegun: {
+    startAmmo: 400,
+    maxAmmo: 800,
+    pickupAmmo: 100,
+  },
+  rifle: {
+    startAmmo: 50,
+    maxAmmo: 100,
+    pickupAmmo: 20,
+  },
+  rocket: {
+    startAmmo: 200,
+    maxAmmo: 500,
+    pickupAmmo: 50,
+  },
+} as const;
 
 // Thermobaric charge (panic button)
 export const THERMOBARIC_COOLDOWN = 5000; // 5 seconds
@@ -246,7 +274,7 @@ export function getWaveConfig(wave: number) {
 
 // Pickups
 export const HEALTH_PACK_VALUE = 45; // more health per pack
-export const AMMO_PACK_VALUE = 50; // generous ammo packs
+// Per-weapon ammo pickups now use WEAPON_AMMO_CONFIGS.pickupAmmo
 export const PICKUP_SPAWN_CHANCE = 0.5; // 50% chance on enemy death
 
 // Power Cell Objective System

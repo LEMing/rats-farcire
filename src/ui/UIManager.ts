@@ -13,7 +13,7 @@
  */
 
 import { POWERUP_CONFIGS, WEAPON_CONFIGS, WEAPON_SLOT_ORDER, THERMOBARIC_COOLDOWN } from '@shared/constants';
-import type { PowerUpType, WeaponType, MapData } from '@shared/types';
+import type { PowerUpType, WeaponType, WeaponAmmo, MapData } from '@shared/types';
 import { UIEffects } from './UIEffects';
 import { GameScreens } from './GameScreens';
 import { Minimap, MinimapData } from './Minimap';
@@ -26,7 +26,7 @@ export interface UIState {
   score: number;
   health: number;
   maxHealth: number;
-  ammo?: number;
+  ammo?: WeaponAmmo;
   combo?: number;
   comboTimer?: number;
   powerUps?: {
@@ -312,9 +312,12 @@ export class UIManager {
     // Score
     this.elements.score.textContent = state.score.toString();
 
-    // Ammo
-    if (state.ammo !== undefined) {
-      this.elements.ammo.textContent = state.ammo.toString();
+    // Ammo (show shots remaining, not raw ammo units)
+    if (state.ammo !== undefined && state.currentWeapon) {
+      const rawAmmo = state.ammo[state.currentWeapon];
+      const energyPerShot = WEAPON_CONFIGS[state.currentWeapon].energy;
+      const shotsRemaining = Math.floor(rawAmmo / energyPerShot);
+      this.elements.ammo.textContent = shotsRemaining.toString();
     }
 
     // Wave info

@@ -8,10 +8,10 @@
 import type { PickupState, PlayerState, Vec3, WeaponType, PowerUpType } from '@shared/types';
 import {
   HEALTH_PACK_VALUE,
-  AMMO_PACK_VALUE,
   POWERUP_DURATION,
   WEAPON_SLOT_ORDER,
   WEAPON_CONFIGS,
+  WEAPON_AMMO_CONFIGS,
   POWERUP_CONFIGS,
   PLAYER_HITBOX_RADIUS,
 } from '@shared/constants';
@@ -58,7 +58,8 @@ export class PickupManager {
       rotation: 0,
       velocity: { x: 0, y: 0 },
       pickupType: isHealth ? 'health' : 'ammo',
-      value: isHealth ? HEALTH_PACK_VALUE : AMMO_PACK_VALUE,
+      // Health uses fixed value, ammo is calculated at pickup time based on weapon
+      value: isHealth ? HEALTH_PACK_VALUE : 0,
     };
 
     this.callbacks.onPickupSpawned?.(pickup);
@@ -158,9 +159,14 @@ export class PickupManager {
         player.health = Math.min(player.maxHealth, player.health + pickup.value);
         break;
 
-      case 'ammo':
-        player.ammo += pickup.value;
+      case 'ammo': {
+        // Give ammo for current weapon
+        const currentWeapon = player.currentWeapon;
+        const ammoConfig = WEAPON_AMMO_CONFIGS[currentWeapon];
+        const currentAmmo = player.ammo[currentWeapon];
+        player.ammo[currentWeapon] = Math.min(ammoConfig.maxAmmo, currentAmmo + ammoConfig.pickupAmmo);
         break;
+      }
 
       case 'powerup':
         if (pickup.powerUpType) {
@@ -173,15 +179,20 @@ export class PickupManager {
 
       case 'weapon':
         if (pickup.weaponType) {
+          const weaponConfig = WEAPON_CONFIGS[pickup.weaponType];
+          const ammoConfig = WEAPON_AMMO_CONFIGS[pickup.weaponType];
+
           if (!player.unlockedWeapons.includes(pickup.weaponType)) {
+            // New weapon - unlock it and give starting ammo
             player.unlockedWeapons.push(pickup.weaponType);
             player.currentWeapon = pickup.weaponType;
-            const config = WEAPON_CONFIGS[pickup.weaponType];
-            notifications.push({ message: `NEW: ${config.name}`, color: config.color });
+            player.ammo[pickup.weaponType] = ammoConfig.startAmmo;
+            notifications.push({ message: `NEW: ${weaponConfig.name}`, color: weaponConfig.color });
           } else {
-            // Already have weapon, give ammo instead
-            player.ammo += 25;
-            notifications.push({ message: '+25 ENERGY', color: 0xffff00 });
+            // Already have weapon - give ammo for it
+            const currentAmmo = player.ammo[pickup.weaponType];
+            player.ammo[pickup.weaponType] = Math.min(ammoConfig.maxAmmo, currentAmmo + ammoConfig.pickupAmmo);
+            notifications.push({ message: `+${ammoConfig.pickupAmmo} ${weaponConfig.name}`, color: weaponConfig.color });
           }
         }
         break;

@@ -38,11 +38,17 @@ export interface PowerCellState extends Entity {
   carriedBy: string | null; // player id
 }
 
+// Weapon types (defined early for use in PlayerState)
+export type WeaponType = 'pistol' | 'shotgun' | 'machinegun' | 'rifle' | 'rocket';
+
+// Per-weapon ammo storage
+export type WeaponAmmo = Record<WeaponType, number>;
+
 export interface PlayerState extends Entity {
   type: 'player';
   health: number;
   maxHealth: number;
-  ammo: number;
+  ammo: WeaponAmmo;
   score: number;
   isDead: boolean;
   lastShootTime: number;
@@ -119,7 +125,7 @@ export interface ProjectileState extends Entity {
 
 export type PickupType = 'health' | 'ammo' | 'powerup' | 'weapon';
 export type PowerUpType = 'rapidFire' | 'spreadShot' | 'vampire' | 'shield';
-export type WeaponType = 'pistol' | 'shotgun' | 'machinegun' | 'rifle' | 'rocket';
+// WeaponType is defined earlier (before PlayerState) for use in WeaponAmmo
 
 export interface PickupState extends Entity {
   type: 'pickup';

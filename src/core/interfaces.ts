@@ -1,4 +1,4 @@
-import type { Vec2, Vec3, MapData, InputState, EnemyType } from '@shared/types';
+import type { Vec2, Vec3, MapData, InputState, EnemyType, WeaponAmmo, WeaponType } from '@shared/types';
 
 // ============================================================================
 // Core Interfaces for Dependency Injection
@@ -76,7 +76,8 @@ export interface UIUpdateData {
   score: number;
   health: number;
   maxHealth: number;
-  ammo?: number;
+  ammo?: WeaponAmmo;
+  currentWeapon?: WeaponType;
   combo?: number;
   comboTimer?: number;
   powerUps?: Record<string, number>;

@@ -66,8 +66,8 @@ export class WeaponSystem {
   canShoot(player: PlayerState, gameTime: number): boolean {
     const weaponConfig = this.weaponConfigs[player.currentWeapon];
 
-    // Check ammo
-    if (player.ammo < weaponConfig.energy) return false;
+    // Check ammo for current weapon
+    if (player.ammo[player.currentWeapon] < weaponConfig.energy) return false;
 
     // Check cooldown
     const timeSinceLastShot = gameTime - player.lastShootTime;
@@ -166,7 +166,7 @@ export class WeaponSystem {
    * Apply shoot result to player state (update ammo, lastShootTime)
    */
   applyShootResult(player: PlayerState, result: ShootResult, gameTime: number): void {
-    player.ammo -= result.energyCost;
+    player.ammo[player.currentWeapon] -= result.energyCost;
     player.lastShootTime = gameTime;
   }
 
