@@ -81,6 +81,17 @@ export class Renderer {
   // Active thermobaric effects
   private thermobaricEffects: ThermobaricEffect[] = [];
 
+  // Active rocket explosions (updated in game loop, not separate rAF)
+  private rocketExplosions: Array<{
+    ring: THREE.Mesh;
+    flash: THREE.Mesh;
+    ringMat: THREE.MeshBasicMaterial;
+    flashMat: THREE.MeshBasicMaterial;
+    ringGeom: THREE.RingGeometry;
+    flashGeom: THREE.SphereGeometry;
+    progress: number;
+  }> = [];
+
   private container: HTMLElement;
   private canvas: HTMLCanvasElement | null = null;
   private initialized = false;
@@ -640,10 +651,38 @@ export class Renderer {
   }
 
   updateThermobaricEffects(): void {
+    // Update thermobaric effects
     for (let i = this.thermobaricEffects.length - 1; i >= 0; i--) {
       const complete = this.thermobaricEffects[i].update();
       if (complete) {
-        this.thermobaricEffects.splice(i, 1);
+        // Swap-and-pop for O(1) removal
+        this.thermobaricEffects[i] = this.thermobaricEffects[this.thermobaricEffects.length - 1];
+        this.thermobaricEffects.pop();
+      }
+    }
+
+    // Update rocket explosions (moved from separate rAF)
+    for (let i = this.rocketExplosions.length - 1; i >= 0; i--) {
+      const exp = this.rocketExplosions[i];
+      exp.progress += 0.08;
+
+      if (exp.progress >= 1) {
+        // Cleanup
+        this.scene.remove(exp.ring);
+        this.scene.remove(exp.flash);
+        exp.ringGeom.dispose();
+        exp.ringMat.dispose();
+        exp.flashGeom.dispose();
+        exp.flashMat.dispose();
+        // Swap-and-pop for O(1) removal
+        this.rocketExplosions[i] = this.rocketExplosions[this.rocketExplosions.length - 1];
+        this.rocketExplosions.pop();
+      } else {
+        // Animate
+        exp.ring.scale.setScalar(exp.progress);
+        exp.ringMat.opacity = 0.9 * (1 - exp.progress);
+        exp.flash.scale.setScalar(1 + exp.progress * 2);
+        exp.flashMat.opacity = 1 - exp.progress;
       }
     }
   }
@@ -675,26 +714,16 @@ export class Renderer {
     flash.position.set(position.x, 0.5, position.z);
     this.scene.add(flash);
 
-    // Animate explosion
-    let progress = 0;
-    const animate = () => {
-      progress += 0.08;
-      if (progress >= 1) {
-        this.scene.remove(ring);
-        this.scene.remove(flash);
-        ringGeom.dispose();
-        ringMat.dispose();
-        flashGeom.dispose();
-        flashMat.dispose();
-        return;
-      }
-      ring.scale.setScalar(progress);
-      ringMat.opacity = 0.9 * (1 - progress);
-      flash.scale.setScalar(1 + progress * 2);
-      flashMat.opacity = 1 - progress;
-      requestAnimationFrame(animate);
-    };
-    animate();
+    // Track explosion for game loop update (no separate rAF)
+    this.rocketExplosions.push({
+      ring,
+      flash,
+      ringMat,
+      flashMat,
+      ringGeom,
+      flashGeom,
+      progress: 0,
+    });
 
     // Spawn fire particles
     for (let i = 0; i < 15; i++) {
