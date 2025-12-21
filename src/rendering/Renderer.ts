@@ -26,6 +26,7 @@ import { MapRenderer } from './MapRenderer';
 import { ZoneLighting } from './ZoneLighting';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { ThermobaricEffect } from './ThermobaricEffect';
+import { DashEffect } from './DashEffect';
 import { debug } from '../utils/debug';
 
 // ============================================================================
@@ -80,6 +81,9 @@ export class Renderer {
 
   // Active thermobaric effects
   private thermobaricEffects: ThermobaricEffect[] = [];
+
+  // Active dash effects
+  private dashEffects: DashEffect[] = [];
 
   // Active rocket explosions (updated in game loop, not separate rAF)
   private rocketExplosions: Array<{
@@ -650,6 +654,21 @@ export class Renderer {
     this.addScreenShake(1.5);
   }
 
+  /**
+   * Create dash visual effect - shockwave, speed lines, particles
+   */
+  createDashEffect(
+    position: Vec3,
+    direction: { x: number; y: number },
+    duration: number = 150
+  ): void {
+    const effect = new DashEffect(this.scene, position, direction, duration);
+    this.dashEffects.push(effect);
+
+    // Add brief screen shake for impact feel
+    this.addScreenShake(0.15);
+  }
+
   updateThermobaricEffects(): void {
     // Update thermobaric effects
     for (let i = this.thermobaricEffects.length - 1; i >= 0; i--) {
@@ -658,6 +677,15 @@ export class Renderer {
         // Swap-and-pop for O(1) removal
         this.thermobaricEffects[i] = this.thermobaricEffects[this.thermobaricEffects.length - 1];
         this.thermobaricEffects.pop();
+      }
+    }
+
+    // Update dash effects
+    for (let i = this.dashEffects.length - 1; i >= 0; i--) {
+      const complete = this.dashEffects[i].update();
+      if (complete) {
+        this.dashEffects[i] = this.dashEffects[this.dashEffects.length - 1];
+        this.dashEffects.pop();
       }
     }
 

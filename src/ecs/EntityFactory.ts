@@ -1135,16 +1135,83 @@ export class EntityFactory {
   createAfterimage(position: { x: number; y: number; z: number }, rotation: number): THREE.Group {
     const ghostGroup = new THREE.Group();
 
-    const bodyGeom = this.materialProvider.getGeometry('playerBody');
-    if (bodyGeom) {
-      const bodyMat = new THREE.MeshBasicMaterial({
-        color: COLORS.dashTrail,
-        transparent: true,
-        opacity: 0.5,
-      });
-      const body = new THREE.Mesh(bodyGeom, bodyMat);
-      ghostGroup.add(body);
-    }
+    // Ghost material - cyan glow with additive blending
+    const ghostMat = new THREE.MeshBasicMaterial({
+      color: 0x44ccff,
+      transparent: true,
+      opacity: 0.6,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    // Outer glow material - softer, larger
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x2288ff,
+      transparent: true,
+      opacity: 0.25,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.BackSide,
+    });
+
+    // Base/skirt (cylinder) - main body silhouette
+    const baseGeom = new THREE.CylinderGeometry(0.35, 0.45, 0.5, 16);
+    const baseMesh = new THREE.Mesh(baseGeom, ghostMat.clone());
+    baseMesh.position.y = 0.25;
+    ghostGroup.add(baseMesh);
+
+    // Glow layer for base
+    const baseGlow = new THREE.Mesh(baseGeom, glowMat.clone());
+    baseGlow.position.y = 0.25;
+    baseGlow.scale.setScalar(1.3);
+    ghostGroup.add(baseGlow);
+
+    // Mid section (sphere)
+    const midGeom = new THREE.SphereGeometry(0.38, 12, 10);
+    const midMesh = new THREE.Mesh(midGeom, ghostMat.clone());
+    midMesh.position.y = 0.6;
+    midMesh.scale.set(1, 0.7, 1);
+    ghostGroup.add(midMesh);
+
+    // Glow layer for mid
+    const midGlow = new THREE.Mesh(midGeom, glowMat.clone());
+    midGlow.position.y = 0.6;
+    midGlow.scale.set(1.35, 0.9, 1.35);
+    ghostGroup.add(midGlow);
+
+    // Head dome
+    const headGeom = new THREE.SphereGeometry(0.28, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const headMesh = new THREE.Mesh(headGeom, ghostMat.clone());
+    headMesh.position.y = 0.95;
+    ghostGroup.add(headMesh);
+
+    // Head glow
+    const headGlow = new THREE.Mesh(headGeom, glowMat.clone());
+    headGlow.position.y = 0.95;
+    headGlow.scale.setScalar(1.4);
+    ghostGroup.add(headGlow);
+
+    // Eye stalk hint
+    const eyeGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.25, 6);
+    const eyeMesh = new THREE.Mesh(eyeGeom, ghostMat.clone());
+    eyeMesh.position.set(0, 1.05, 0.2);
+    eyeMesh.rotation.x = Math.PI / 6;
+    ghostGroup.add(eyeMesh);
+
+    // Trail glow underneath
+    const trailGeom = new THREE.CircleGeometry(0.4, 16);
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: 0x44aaff,
+      transparent: true,
+      opacity: 0.4,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const trailMesh = new THREE.Mesh(trailGeom, trailMat);
+    trailMesh.rotation.x = -Math.PI / 2;
+    trailMesh.position.y = 0.05;
+    ghostGroup.add(trailMesh);
 
     ghostGroup.position.set(position.x, position.y, position.z);
     ghostGroup.rotation.y = rotation;

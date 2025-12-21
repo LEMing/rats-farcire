@@ -24,7 +24,11 @@ import { applyAimAssist, AimTarget } from './AimAssist';
 // ============================================================================
 
 export interface PlayerControllerCallbacks {
-  onDashStart?: (playerId: string, position: { x: number; y: number; z: number }) => void;
+  onDashStart?: (
+    playerId: string,
+    position: { x: number; y: number; z: number },
+    direction: { x: number; y: number }
+  ) => void;
   onAfterimage?: (playerId: string, position: { x: number; y: number; z: number }) => void;
   onDashSound?: () => void;
 }
@@ -145,6 +149,9 @@ export class PlayerController {
         y: Math.cos(player.rotation),
       };
     }
+
+    // Trigger dash start callback with direction for visual effects
+    this.callbacks.onDashStart?.(player.id, player.position, player.dashDirection);
 
     // Spawn initial afterimage
     this.callbacks.onAfterimage?.(player.id, player.position);

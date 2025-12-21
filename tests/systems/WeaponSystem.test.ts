@@ -15,7 +15,13 @@ const createMockPlayer = (overrides: Partial<PlayerState> = {}): PlayerState => 
   velocity: { x: 0, y: 0 },
   health: 100,
   maxHealth: 100,
-  ammo: 100,
+  ammo: {
+    pistol: 100,
+    shotgun: 100,
+    machinegun: 100,
+    rifle: 100,
+    rocket: 100,
+  },
   score: 0,
   isDead: false,
   lastShootTime: 0,
@@ -59,7 +65,9 @@ describe('WeaponSystem', () => {
     });
 
     it('should return false when not enough ammo', () => {
-      const player = createMockPlayer({ ammo: 0 });
+      const player = createMockPlayer({
+        ammo: { pistol: 0, shotgun: 0, machinegun: 0, rifle: 0, rocket: 0 },
+      });
       expect(weaponSystem.canShoot(player, 1000)).toBe(false);
     });
 
@@ -120,7 +128,9 @@ describe('WeaponSystem', () => {
     });
 
     it('should return null when cannot shoot', () => {
-      const player = createMockPlayer({ ammo: 0 });
+      const player = createMockPlayer({
+        ammo: { pistol: 0, shotgun: 0, machinegun: 0, rifle: 0, rocket: 0 },
+      });
       const result = weaponSystem.shoot(player, 1000);
       expect(result).toBeNull();
     });
@@ -141,7 +151,7 @@ describe('WeaponSystem', () => {
       const rocketPlayer = createMockPlayer({
         currentWeapon: 'rocket',
         unlockedWeapons: ['pistol', 'shotgun', 'rocket'],
-        ammo: 50,
+        ammo: { pistol: 50, shotgun: 50, machinegun: 50, rifle: 50, rocket: 50 },
       });
       const rocketResult = weaponSystem.shoot(rocketPlayer, 1000);
       expect(rocketResult!.screenShake).toBe(0.3);
@@ -180,12 +190,15 @@ describe('WeaponSystem', () => {
 
   describe('applyShootResult', () => {
     it('should deduct ammo and update lastShootTime', () => {
-      const player = createMockPlayer({ ammo: 100, lastShootTime: 0 });
+      const player = createMockPlayer({
+        ammo: { pistol: 100, shotgun: 100, machinegun: 100, rifle: 100, rocket: 100 },
+        lastShootTime: 0,
+      });
       const result = weaponSystem.shoot(player, 1000);
 
       weaponSystem.applyShootResult(player, result!, 1000);
 
-      expect(player.ammo).toBe(100 - WEAPON_CONFIGS.shotgun.energy);
+      expect(player.ammo.shotgun).toBe(100 - WEAPON_CONFIGS.shotgun.energy);
       expect(player.lastShootTime).toBe(1000);
     });
   });

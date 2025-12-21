@@ -17,6 +17,7 @@ import {
   TILE_SIZE,
   PICKUP_SPAWN_CHANCE,
   DASH_IFRAMES,
+  DASH_DURATION,
   POWERUP_DROP_CHANCE,
   POWERUP_CONFIGS,
   MINI_HORDE_SIZE,
@@ -130,6 +131,9 @@ export class LocalGameLoop {
 
     // Initialize player controller with callbacks
     this.playerController = new PlayerController(mapData, {
+      onDashStart: (_playerId, position, direction) => {
+        this.renderer.createDashEffect(position, direction, DASH_DURATION);
+      },
       onAfterimage: (playerId, position) => this.entities.spawnAfterimage(playerId, position),
       onDashSound: () => getAudioManager()?.playDash(),
     });

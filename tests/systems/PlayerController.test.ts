@@ -47,7 +47,13 @@ const createMockPlayer = (overrides: Partial<PlayerState> = {}): PlayerState => 
   velocity: { x: 0, y: 0 },
   health: 100,
   maxHealth: 100,
-  ammo: 100,
+  ammo: {
+    pistol: 100,
+    shotgun: 100,
+    machinegun: 100,
+    rifle: 100,
+    rocket: 100,
+  },
   score: 0,
   isDead: false,
   lastShootTime: 0,
@@ -115,9 +121,12 @@ describe('PlayerController', () => {
       const player = createMockPlayer();
       const input = createMockInput({ moveX: 1, moveY: 1 });
 
-      controller.processInput(player, input, 0, 16);
+      // With inertia, need multiple frames to reach target speed
+      for (let i = 0; i < 60; i++) {
+        controller.processInput(player, input, i * 16, 16);
+      }
 
-      // Velocity magnitude should be approximately PLAYER_SPEED
+      // Velocity magnitude should be approximately PLAYER_SPEED after acceleration
       const magnitude = Math.sqrt(player.velocity.x ** 2 + player.velocity.y ** 2);
       expect(magnitude).toBeCloseTo(PLAYER_SPEED, 0);
     });
@@ -359,9 +368,14 @@ describe('PlayerController', () => {
       const player = createMockPlayer();
       const input = createMockInput({ moveX: 1 });
 
-      fastController.processInput(player, input, 0, 16);
+      // With inertia, velocity accelerates towards target over multiple frames
+      // Process multiple times to let velocity build up
+      for (let i = 0; i < 60; i++) {
+        fastController.processInput(player, input, i * 16, 16);
+      }
 
-      expect(player.velocity.x).toBeCloseTo(20);
+      // Should reach target speed after acceleration
+      expect(player.velocity.x).toBeCloseTo(20, 0);
     });
 
     it('should allow setting aim assist dynamically', () => {

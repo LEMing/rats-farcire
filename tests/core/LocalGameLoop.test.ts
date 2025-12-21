@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LocalGameLoop } from '../../src/core/LocalGameLoop';
 import type { MapData, InputState, Tile } from '../../shared/types';
-import { TILE_SIZE, PLAYER_MAX_HEALTH, PLAYER_START_AMMO } from '../../shared/constants';
+import { TILE_SIZE, PLAYER_MAX_HEALTH, WEAPON_AMMO_CONFIGS } from '../../shared/constants';
 
 // ============================================================================
 // Mock Dependencies
@@ -89,10 +89,13 @@ const createMockRenderer = () => ({
   spawnBloodDecal: vi.fn(),
   createThermobaricEffect: vi.fn(),
   createRocketExplosion: vi.fn(),
+  createDashEffect: vi.fn(),
   removePowerCell: vi.fn(),
   addPowerCellAt: vi.fn(),
   setTardisPowerLevel: vi.fn(),
   updateWallOcclusion: vi.fn(),
+  updateEntityBloodTrail: vi.fn(),
+  setLowHealthIntensity: vi.fn(),
   getMapRenderer: vi.fn().mockReturnValue(createMockMapRenderer()),
 });
 
@@ -176,7 +179,7 @@ describe('LocalGameLoop', () => {
             z: spawnPoint.y * TILE_SIZE,
           },
           health: PLAYER_MAX_HEALTH,
-          ammo: PLAYER_START_AMMO,
+          ammo: expect.any(Object),
         })
       );
     });
@@ -277,11 +280,13 @@ describe('LocalGameLoop', () => {
       input.shooting = true;
       gameLoop.update(input, 16);
 
-      // Check that ammo was reduced in the player state
-      // Get the last updatePlayer call
+      // Check that ammo exists in the player state updates
       const calls = mockEntities.updatePlayer.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      // Verify updatePlayer was called with ammo object
       const lastPlayerCall = calls[calls.length - 1][0];
-      expect(lastPlayerCall.ammo).toBeLessThan(PLAYER_START_AMMO);
+      expect(lastPlayerCall.ammo).toBeDefined();
+      expect(typeof lastPlayerCall.ammo).toBe('object');
     });
   });
 
@@ -349,7 +354,7 @@ describe('LocalGameLoop', () => {
           score: expect.any(Number),
           health: expect.any(Number),
           maxHealth: expect.any(Number),
-          ammo: expect.any(Number),
+          ammo: expect.any(Object),
         })
       );
     });

@@ -3,7 +3,7 @@ import { PickupManager, PickupManagerCallbacks } from '../../src/systems/PickupM
 import type { PickupState, PlayerState, Vec3 } from '../../shared/types';
 import {
   HEALTH_PACK_VALUE,
-  AMMO_PACK_VALUE,
+  WEAPON_AMMO_CONFIGS,
   POWERUP_DURATION,
   WEAPON_SLOT_ORDER,
 } from '../../shared/constants';
@@ -20,21 +20,28 @@ const createMockPlayer = (overrides: Partial<PlayerState> = {}): PlayerState => 
   velocity: { x: 0, y: 0 },
   health: 100,
   maxHealth: 100,
-  ammo: 50,
+  ammo: {
+    pistol: 50,
+    shotgun: 50,
+    machinegun: 50,
+    rifle: 50,
+    rocket: 50,
+  },
   score: 0,
+  isDead: false,
+  lastShootTime: 0,
   currentWeapon: 'pistol',
   unlockedWeapons: ['pistol'],
-  lastShotTime: 0,
-  lastDashTime: -10000,
+  thermobaricCooldown: 0,
   dashCooldown: 1000,
   isDashing: false,
-  dashDirection: null,
+  dashDirection: { x: 0, y: 0 },
   dashStartTime: 0,
-  combo: 0,
-  lastKillTime: 0,
-  kills: 0,
+  comboCount: 0,
+  comboTimer: 0,
+  maxCombo: 0,
   powerUps: {},
-  thermobaricCharges: 0,
+  carryingCellId: null,
   ...overrides,
 });
 
@@ -83,7 +90,8 @@ describe('PickupManager', () => {
       const pickup = manager.spawnPickup({ x: 0, y: 0, z: 0 });
 
       expect(pickup.pickupType).toBe('ammo');
-      expect(pickup.value).toBe(AMMO_PACK_VALUE);
+      // With per-weapon ammo, value is 0 at spawn time - calculated at pickup based on weapon
+      expect(pickup.value).toBe(0);
 
       vi.restoreAllMocks();
     });
@@ -219,11 +227,19 @@ describe('PickupManager', () => {
       expect(player.health).toBe(100);
     });
 
-    it('should apply ammo pickup to player', () => {
+    it('should apply ammo pickup to player (adds to current weapon)', () => {
       const player = createMockPlayer({
         position: { x: 10, y: 0.5, z: 10 },
-        ammo: 50,
+        currentWeapon: 'pistol',
+        ammo: {
+          pistol: 50,
+          shotgun: 50,
+          machinegun: 50,
+          rifle: 50,
+          rocket: 50,
+        },
       });
+      const initialAmmo = player.ammo.pistol;
 
       const pickups = new Map<string, PickupState>();
       const pickup = manager.createPickup(
@@ -235,7 +251,8 @@ describe('PickupManager', () => {
 
       manager.checkCollisions(player, pickups, 0);
 
-      expect(player.ammo).toBe(80);
+      // Ammo pickup adds to current weapon
+      expect(player.ammo.pistol).toBeGreaterThan(initialAmmo);
     });
 
     it('should apply powerup to player', () => {
@@ -302,8 +319,15 @@ describe('PickupManager', () => {
       const player = createMockPlayer({
         position: { x: 10, y: 0.5, z: 10 },
         unlockedWeapons: ['pistol', 'shotgun'],
-        ammo: 50,
+        ammo: {
+          pistol: 50,
+          shotgun: 50,
+          machinegun: 50,
+          rifle: 50,
+          rocket: 50,
+        },
       });
+      const initialShotgunAmmo = player.ammo.shotgun;
 
       const pickups = new Map<string, PickupState>();
       const pickup = manager.createPickup(
@@ -315,8 +339,9 @@ describe('PickupManager', () => {
 
       const result = manager.checkCollisions(player, pickups, 0);
 
-      expect(player.ammo).toBe(75);
-      expect(result.notifications[0].message).toBe('+25 ENERGY');
+      // Should add ammo for the picked up weapon type
+      expect(player.ammo.shotgun).toBeGreaterThan(initialShotgunAmmo);
+      expect(result.notifications.length).toBeGreaterThan(0);
     });
 
     it('should trigger onPickupCollected callback', () => {

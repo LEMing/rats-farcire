@@ -302,8 +302,8 @@ export const MAX_PLAYERS_PER_ROOM = 4;
 export const SNAPSHOT_BUFFER_SIZE = 32;
 
 // Dash ability
-export const DASH_SPEED = 25;
-export const DASH_DURATION = 150; // ms
+export const DASH_SPEED = 32;
+export const DASH_DURATION = 160; // ms
 export const DASH_COOLDOWN = 800; // ms
 export const DASH_IFRAMES = true;
 
