@@ -165,6 +165,56 @@ export class EntityFactory {
     plunger.rotation.x = Math.PI / 2;
     group.add(plunger);
 
+    // === Anti-gravity hover glow (blue glow underneath) ===
+    const hoverGlowGroup = new THREE.Group();
+    hoverGlowGroup.name = 'hoverGlow';
+
+    // Inner bright core
+    const glowCoreGeom = new THREE.CircleGeometry(0.35, 24);
+    const glowCoreMat = new THREE.MeshBasicMaterial({
+      color: 0x44aaff,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+    });
+    const glowCore = new THREE.Mesh(glowCoreGeom, glowCoreMat);
+    glowCore.rotation.x = -Math.PI / 2;
+    glowCore.position.y = 0.02;
+    hoverGlowGroup.add(glowCore);
+
+    // Outer glow ring
+    const glowOuterGeom = new THREE.RingGeometry(0.3, 0.55, 24);
+    const glowOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x2288ff,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+    });
+    const glowOuter = new THREE.Mesh(glowOuterGeom, glowOuterMat);
+    glowOuter.rotation.x = -Math.PI / 2;
+    glowOuter.position.y = 0.01;
+    hoverGlowGroup.add(glowOuter);
+
+    // Soft outer halo
+    const glowHaloGeom = new THREE.RingGeometry(0.5, 0.75, 24);
+    const glowHaloMat = new THREE.MeshBasicMaterial({
+      color: 0x1166cc,
+      transparent: true,
+      opacity: 0.25,
+      side: THREE.DoubleSide,
+    });
+    const glowHalo = new THREE.Mesh(glowHaloGeom, glowHaloMat);
+    glowHalo.rotation.x = -Math.PI / 2;
+    glowHalo.position.y = 0.005;
+    hoverGlowGroup.add(glowHalo);
+
+    // Point light for dynamic illumination
+    const hoverLight = new THREE.PointLight(0x4488ff, 0.8, 3);
+    hoverLight.position.y = 0.1;
+    hoverGlowGroup.add(hoverLight);
+
+    group.add(hoverGlowGroup);
+
     // === Muzzle flash (at gun tip) ===
     const flashGeom = new THREE.PlaneGeometry(0.5, 0.5);
     const flashMat = new THREE.MeshBasicMaterial({

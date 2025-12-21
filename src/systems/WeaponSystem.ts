@@ -36,6 +36,7 @@ export interface ShootResult {
   projectiles: ProjectileState[];
   screenShake: number;
   energyCost: number;
+  recoilForce: number;  // Physical recoil force to apply to player
 }
 
 export interface ThermobaricResult {
@@ -155,19 +156,33 @@ export class WeaponSystem {
       projectiles.push(projectile);
     }
 
+    // Get recoil force from weapon config (default to 1 if not specified)
+    const recoilForce = 'recoil' in weaponConfig ? (weaponConfig as { recoil: number }).recoil : 1;
+
     return {
       projectiles,
       screenShake,
       energyCost: weaponConfig.energy,
+      recoilForce,
     };
   }
 
   /**
-   * Apply shoot result to player state (update ammo, lastShootTime)
+   * Apply shoot result to player state (update ammo, lastShootTime, recoil)
    */
   applyShootResult(player: PlayerState, result: ShootResult, gameTime: number): void {
     player.ammo[player.currentWeapon] -= result.energyCost;
     player.lastShootTime = gameTime;
+
+    // Apply physical recoil - push player backwards from shooting direction
+    if (result.recoilForce > 0) {
+      const recoilDirX = -Math.sin(player.rotation);
+      const recoilDirZ = -Math.cos(player.rotation);
+
+      // Add recoil to player velocity
+      player.velocity.x += recoilDirX * result.recoilForce;
+      player.velocity.y += recoilDirZ * result.recoilForce;
+    }
   }
 
   /**

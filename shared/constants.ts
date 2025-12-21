@@ -19,8 +19,14 @@ export const ROOM_COUNT = 16;
 export const CORRIDOR_WIDTH = 2;
 
 // Player
-export const PLAYER_SPEED = 8; // units per second
+export const PLAYER_SPEED = 11; // units per second (Dalek hover speed)
 export const PLAYER_MAX_HEALTH = 100;
+export const PLAYER_ACCELERATION = 25; // acceleration for inertia
+export const PLAYER_DECELERATION = 15; // deceleration when stopping
+export const PLAYER_HOVER_HEIGHT = 0.3; // levitation height above ground
+export const PLAYER_HOVER_BOB_SPEED = 2.5; // hover animation speed
+export const PLAYER_HOVER_BOB_AMOUNT = 0.08; // hover animation amplitude
+export const PLAYER_TILT_AMOUNT = 0.15; // tilt when moving (radians)
 // Per-weapon ammo now uses WEAPON_AMMO_CONFIGS
 export const PLAYER_HITBOX_RADIUS = 0.35;
 
@@ -39,6 +45,7 @@ export const WEAPON_CONFIGS = {
     speed: 30,
     lifetime: 1000,
     color: 0xffff88,
+    recoil: 1.5,       // Light recoil
   },
   shotgun: {
     name: 'SHOTGUN',
@@ -50,6 +57,7 @@ export const WEAPON_CONFIGS = {
     speed: 25,
     lifetime: 800,
     color: 0xff8844,
+    recoil: 4.0,       // Heavy recoil - big kick!
   },
   machinegun: {
     name: 'MACHINE GUN',
@@ -61,6 +69,7 @@ export const WEAPON_CONFIGS = {
     speed: 35,
     lifetime: 600,
     color: 0x88ff88,
+    recoil: 0.8,       // Light continuous recoil
   },
   rifle: {
     name: 'RIFLE',
@@ -72,6 +81,7 @@ export const WEAPON_CONFIGS = {
     speed: 45,
     lifetime: 1200,
     color: 0x8888ff,
+    recoil: 3.0,       // Strong kick
   },
   rocket: {
     name: 'ROCKET',
@@ -85,6 +95,7 @@ export const WEAPON_CONFIGS = {
     color: 0xff4444,
     explosive: true,
     blastRadius: 3,
+    recoil: 5.0,       // Massive recoil!
   },
 } as const;
 

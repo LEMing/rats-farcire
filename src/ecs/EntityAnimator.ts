@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import type { EnemyState, Vec3 } from '@shared/types';
 import { lerpVec3, lerpAngle } from '@shared/utils';
+import {
+  PLAYER_HOVER_HEIGHT,
+  PLAYER_HOVER_BOB_SPEED,
+  PLAYER_HOVER_BOB_AMOUNT,
+  PLAYER_TILT_AMOUNT,
+} from '@shared/constants';
 
 /**
  * EntityAnimator - Handles all visual animations for game entities
@@ -317,7 +323,67 @@ export class EntityAnimator {
   }
 
   private animatePlayer(entity: EntityVisual): void {
-    // Muzzle flash fade
+    const time = performance.now() * 0.001; // Convert to seconds
+
+    // === HOVER ANIMATION ===
+    // Base levitation height + sinusoidal bob
+    const hoverBob = Math.sin(time * PLAYER_HOVER_BOB_SPEED) * PLAYER_HOVER_BOB_AMOUNT;
+    entity.mesh.position.y = entity.currentState.position.y + PLAYER_HOVER_HEIGHT + hoverBob;
+
+    // Animate the hover glow (pulse and rotate)
+    const hoverGlow = entity.mesh.getObjectByName('hoverGlow');
+    if (hoverGlow) {
+      // Subtle rotation
+      hoverGlow.rotation.y = time * 0.5;
+
+      // Pulse the glow intensity
+      const glowPulse = 0.7 + Math.sin(time * PLAYER_HOVER_BOB_SPEED * 2) * 0.3;
+      hoverGlow.children.forEach((child) => {
+        if (child instanceof THREE.Mesh) {
+          const mat = child.material as THREE.MeshBasicMaterial;
+          if (mat.opacity !== undefined) {
+            // Scale opacity based on original value (inner brighter, outer dimmer)
+            const baseOpacity = child === hoverGlow.children[0] ? 0.8 :
+                               child === hoverGlow.children[1] ? 0.5 : 0.25;
+            mat.opacity = baseOpacity * glowPulse;
+          }
+        }
+      });
+
+      // Pulse the point light
+      const hoverLight = hoverGlow.children.find(c => c instanceof THREE.PointLight) as THREE.PointLight | undefined;
+      if (hoverLight) {
+        hoverLight.intensity = 0.6 + Math.sin(time * PLAYER_HOVER_BOB_SPEED * 2) * 0.4;
+      }
+    }
+
+    // === MOVEMENT TILT ===
+    // Calculate velocity from state changes
+    const velX = entity.currentState.position.x - entity.prevState.position.x;
+    const velZ = entity.currentState.position.z - entity.prevState.position.z;
+    const speed = Math.sqrt(velX * velX + velZ * velZ);
+
+    // Tilt in the direction of movement (relative to facing direction)
+    let moveTiltX = 0;
+    let moveTiltZ = 0;
+    if (speed > 0.01) {
+      // Get forward direction from rotation
+      const facingAngle = entity.mesh.rotation.y;
+      const forwardX = Math.sin(facingAngle);
+      const forwardZ = Math.cos(facingAngle);
+      const rightX = Math.cos(facingAngle);
+      const rightZ = -Math.sin(facingAngle);
+
+      // Project velocity onto forward and right directions
+      const forwardDot = (velX * forwardX + velZ * forwardZ) / speed;
+      const rightDot = (velX * rightX + velZ * rightZ) / speed;
+
+      // Tilt forward when moving forward, lean into turns
+      moveTiltX = forwardDot * PLAYER_TILT_AMOUNT * Math.min(speed * 3, 1);
+      moveTiltZ = -rightDot * PLAYER_TILT_AMOUNT * 0.7 * Math.min(speed * 3, 1);
+    }
+
+    // === MUZZLE FLASH ===
     const flash = entity.mesh.getObjectByName('muzzleFlash') as THREE.Mesh;
     if (flash) {
       const mat = flash.material as THREE.MeshBasicMaterial;
@@ -333,19 +399,22 @@ export class EntityAnimator {
       this.muzzleFlashLight.intensity = this.muzzleFlashIntensity;
     }
 
-    // Recoil animation
+    // === RECOIL + COMBINED TILT ===
     if (this.playerRecoil.offset > 0.01 || this.playerRecoil.tilt > 0.01) {
       const recoilScale = 1 - this.playerRecoil.offset * 0.3;
       const stretchScale = 1 + this.playerRecoil.offset * 0.15;
 
       entity.mesh.scale.set(stretchScale, stretchScale, recoilScale);
-      entity.mesh.rotation.x = -this.playerRecoil.tilt;
+      // Combine recoil tilt with movement tilt
+      entity.mesh.rotation.x = -this.playerRecoil.tilt + moveTiltX;
+      entity.mesh.rotation.z = moveTiltZ;
 
       this.playerRecoil.offset *= (1 - this.playerRecoil.recovery);
       this.playerRecoil.tilt *= (1 - this.playerRecoil.recovery);
     } else {
       entity.mesh.scale.set(1, 1, 1);
-      entity.mesh.rotation.x = 0;
+      entity.mesh.rotation.x = moveTiltX;
+      entity.mesh.rotation.z = moveTiltZ;
     }
   }
 

@@ -8,6 +8,8 @@
 import type { PlayerState, InputState, MapData, Vec2 } from '@shared/types';
 import {
   PLAYER_SPEED,
+  PLAYER_ACCELERATION,
+  PLAYER_DECELERATION,
   DASH_SPEED,
   DASH_DURATION,
   DASH_COOLDOWN,
@@ -195,16 +197,38 @@ export class PlayerController {
   }
 
   /**
-   * Calculate normal movement velocity
+   * Calculate normal movement velocity with inertia (acceleration/deceleration)
    */
   private calculateNormalVelocity(player: PlayerState, input: InputState): Vec2 {
     const moveDir = normalize({ x: input.moveX, y: input.moveY });
     const speedMultiplier = player.carryingCellId ? CELL_CARRY_SPEED_MULTIPLIER : 1;
+    const targetSpeed = this.config.playerSpeed * speedMultiplier;
 
-    return {
-      x: moveDir.x * this.config.playerSpeed * speedMultiplier,
-      y: moveDir.y * this.config.playerSpeed * speedMultiplier,
-    };
+    // Target velocity based on input
+    const targetVelX = moveDir.x * targetSpeed;
+    const targetVelY = moveDir.y * targetSpeed;
+
+    // Current velocity (from player state)
+    let velX = player.velocity?.x ?? 0;
+    let velY = player.velocity?.y ?? 0;
+
+    // Determine if we're accelerating or decelerating
+    const hasInput = Math.abs(moveDir.x) > 0.01 || Math.abs(moveDir.y) > 0.01;
+    const rate = hasInput ? PLAYER_ACCELERATION : PLAYER_DECELERATION;
+
+    // Frame-rate independent acceleration (assuming ~60fps baseline)
+    const dt = 1 / 60; // Approximate dt for velocity update
+    const factor = 1 - Math.exp(-rate * dt);
+
+    // Smoothly interpolate velocity towards target
+    velX += (targetVelX - velX) * factor;
+    velY += (targetVelY - velY) * factor;
+
+    // Clamp very small velocities to zero to prevent drift
+    if (Math.abs(velX) < 0.1 && Math.abs(targetVelX) === 0) velX = 0;
+    if (Math.abs(velY) < 0.1 && Math.abs(targetVelY) === 0) velY = 0;
+
+    return { x: velX, y: velY };
   }
 
   /**
