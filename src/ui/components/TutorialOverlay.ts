@@ -120,7 +120,7 @@ export class TutorialOverlay {
           ${this.createControlRow('W A S D', 'MOVE')}
           ${this.createControlRow('MOUSE', 'AIM')}
           ${this.createControlRow('CLICK', 'SHOOT')}
-          ${this.createControlRow('SHIFT', 'DASH')}
+          ${this.createControlRow('SPACE', 'DASH')}
           ${this.createControlRow('1-5', 'WEAPONS')}
           ${this.createControlRow('F', 'BOMB')}
           ${this.createControlRow('E', 'INTERACT')}
