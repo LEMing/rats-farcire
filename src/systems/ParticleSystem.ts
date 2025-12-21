@@ -13,7 +13,7 @@ interface ParticleData {
   velocity: THREE.Vector3;
   lifetime: number;
   maxLifetime: number;
-  color: THREE.Color;
+  colorHex: number; // Store as hex to avoid Color allocation
   baseScale: number;
 }
 
@@ -50,6 +50,7 @@ export class ParticleSystem {
   private freeParticleIndices: number[] = [];
   private dummyMatrix = new THREE.Matrix4();
   private dummyColor = new THREE.Color();
+  private dummyScale = new THREE.Vector3(); // Reusable for scaling to avoid allocation
 
   // Blood decal instancing - no per-decal allocation
   private bloodDecalInstances!: THREE.InstancedMesh;
@@ -246,7 +247,6 @@ export class ParticleSystem {
    */
   spawnBloodBurst(position: Vec3, enemyType: EnemyType, count: number = 15): void {
     const colorHex = BLOOD_COLORS[enemyType];
-    this.dummyColor.setHex(colorHex);
 
     for (let i = 0; i < count; i++) {
       // Get free particle index
@@ -267,7 +267,7 @@ export class ParticleSystem {
         ),
         lifetime: 0,
         maxLifetime: 0.4 + Math.random() * 0.3,
-        color: this.dummyColor.clone(),
+        colorHex, // Store hex directly, no Color allocation
         baseScale: 0.8 + Math.random() * 0.4,
       });
     }
@@ -293,7 +293,7 @@ export class ParticleSystem {
       ),
       lifetime: 0,
       maxLifetime: 0.5 + Math.random() * 0.3,
-      color: new THREE.Color(0xff6600), // Fire orange
+      colorHex: 0xff6600, // Fire orange - no Color allocation
       baseScale: 1.0 + Math.random() * 0.5,
     });
   }
@@ -446,9 +446,10 @@ export class ParticleSystem {
     // Random size variation
     const scale = 0.8 + Math.random() * 0.4;
 
-    // Build transform: rotate, scale, position
+    // Build transform: rotate, scale, position (reuse dummyScale to avoid allocation)
     this.dummyMatrix.makeRotationY(rotation + (Math.random() - 0.5) * 0.4);
-    this.dummyMatrix.scale(new THREE.Vector3(scale, scale, scale));
+    this.dummyScale.set(scale, scale, scale);
+    this.dummyMatrix.scale(this.dummyScale);
     this.dummyMatrix.setPosition(
       x + (Math.random() - 0.5) * 0.1,
       0.015, // Slightly above ground
@@ -508,9 +509,10 @@ export class ParticleSystem {
         break;
     }
 
-    // Build transform: rotate to face outward from wall, scale, position
+    // Build transform: rotate to face outward from wall, scale, position (reuse dummyScale)
     this.dummyMatrix.makeRotationY(rotY);
-    this.dummyMatrix.scale(new THREE.Vector3(scale, scale * (0.8 + Math.random() * 0.4), scale));
+    this.dummyScale.set(scale, scale * (0.8 + Math.random() * 0.4), scale);
+    this.dummyMatrix.scale(this.dummyScale);
     this.dummyMatrix.setPosition(
       x + offsetX + (Math.random() - 0.5) * 0.2,
       y + (Math.random() - 0.5) * 0.3,
@@ -548,7 +550,9 @@ export class ParticleSystem {
 
         // Return index to free pool
         this.freeParticleIndices.push(p.index);
-        this.particles.splice(i, 1);
+        // Swap-and-pop: O(1) removal (safe for backward iteration)
+        this.particles[i] = this.particles[this.particles.length - 1];
+        this.particles.pop();
         needsUpdate = true;
         continue;
       }
@@ -566,8 +570,8 @@ export class ParticleSystem {
       this.dummyMatrix.setPosition(p.position);
       this.particleInstances.setMatrixAt(p.index, this.dummyMatrix);
 
-      // Darken color as it fades (simulate transparency)
-      this.dummyColor.copy(p.color).multiplyScalar(alpha);
+      // Darken color as it fades (simulate transparency) - use setHex to avoid allocation
+      this.dummyColor.setHex(p.colorHex).multiplyScalar(alpha);
       this.particleInstances.setColorAt(p.index, this.dummyColor);
 
       needsUpdate = true;
@@ -599,7 +603,9 @@ export class ParticleSystem {
 
         // Return index to pool
         this.freeGibIndices.push(g.index);
-        this.gibs.splice(i, 1);
+        // Swap-and-pop: O(1) removal (safe for backward iteration)
+        this.gibs[i] = this.gibs[this.gibs.length - 1];
+        this.gibs.pop();
         needsUpdate = true;
         continue;
       }
@@ -628,9 +634,10 @@ export class ParticleSystem {
         : 1;
       const scale = g.scale * alpha;
 
-      // Build transform matrix with rotation
+      // Build transform matrix with rotation - reuse dummyScale to avoid allocation
       this.dummyMatrix.makeRotationFromEuler(g.rotation);
-      this.dummyMatrix.scale(new THREE.Vector3(scale, scale, scale));
+      this.dummyScale.set(scale, scale, scale);
+      this.dummyMatrix.scale(this.dummyScale);
       this.dummyMatrix.setPosition(g.position);
       this.gibInstances.setMatrixAt(g.index, this.dummyMatrix);
 
