@@ -27,7 +27,6 @@ import { WaveManager, SpawnRequest } from '../systems/WaveManager';
 import { ObjectiveSystem } from '../systems/ObjectiveSystem';
 import {
   generateId,
-  distance,
   circleCollision,
 } from '@shared/utils';
 import { EntityManager } from '../ecs/EntityManager';
@@ -37,7 +36,6 @@ import { EventBus, getEventBus } from './EventBus';
 import { getAudioManager } from '../audio/AudioManager';
 import { Settings } from '../settings/Settings';
 import { debug } from '../utils/debug';
-import { calculateKnockback } from '../systems/KnockbackUtils';
 import { calculateScore, updateComboState } from '../systems/ScoreUtils';
 import { CleanupQueue } from '../systems/CleanupQueue';
 import { PlayerController } from '../systems/PlayerController';
@@ -49,6 +47,7 @@ import { LastStandSystem } from '../systems/LastStandSystem';
 import { BarrelManager, ExplosionResult } from '../systems/BarrelManager';
 import { PropManager } from '../systems/PropManager';
 import { DeathEffectsSystem } from '../systems/DeathEffectsSystem';
+import { CombatSystem } from '../systems/CombatSystem';
 import { PhysicsManager } from '../physics/PhysicsManager';
 import { PhysicsColliderBuilder } from '../physics/PhysicsColliderBuilder';
 
@@ -85,6 +84,7 @@ export class LocalGameLoop {
   private barrelManager!: BarrelManager;
   private propManager!: PropManager;
   private deathEffectsSystem!: DeathEffectsSystem;
+  private combatSystem!: CombatSystem;
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
@@ -244,6 +244,36 @@ export class LocalGameLoop {
       worldToScreen: (worldPos) => this.renderer.worldToScreen(worldPos),
     });
 
+    // Initialize combat system
+    this.combatSystem = new CombatSystem({
+      onEnemyDamaged: (enemyId, currentHealth, maxHealth) => {
+        this.entities.damageEnemy(enemyId, currentHealth, maxHealth);
+      },
+      onEnemyKilled: (enemyId, weaponType) => {
+        this.killEnemy(enemyId, weaponType);
+      },
+      onPlayerDamaged: (damage, position) => {
+        const hasShield = this.player?.powerUps.shield && this.player.powerUps.shield > this.gameTime;
+        this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
+        this.renderer.triggerDamageEffect(hasShield ? 0.4 : 0.8);
+        this.eventBus.emit('playerHit', { position: { ...position }, damage, health: this.player?.health ?? 0 });
+      },
+      onPlayerKilled: () => {
+        this.handlePlayerDeath();
+      },
+      onScreenShake: (intensity) => {
+        this.renderer.addScreenShake(intensity);
+      },
+      onDamageNumber: (x, y, damage, isCrit, combo) => {
+        this.ui.spawnDamageNumber(x, y, damage, isCrit, combo);
+      },
+      worldToScreen: (worldPos) => this.renderer.worldToScreen(worldPos),
+      onHitstop: () => {
+        this.eventBus.emit('hitStop', { duration: 8 });
+        if (this.onHitstop) this.onHitstop();
+      },
+    });
+
     // Start physics initialization (async)
     this.initPhysics();
   }
@@ -396,6 +426,7 @@ export class LocalGameLoop {
     if (!this.player || this.player.isDead || objectiveState.isComplete) return;
 
     this.gameTime += dt;
+    this.combatSystem.setGameTime(this.gameTime);
 
     // Update combo timer - use extracted utility
     if (this.player.comboTimer > 0) {
@@ -667,41 +698,8 @@ export class LocalGameLoop {
       }
     }
 
-    // Damage all enemies in radius
-    for (const [enemyId, enemy] of this.enemies) {
-      if (enemy.state === 'dead') continue;
-
-      const dist = distance(
-        { x: position.x, y: position.z },
-        { x: enemy.position.x, y: enemy.position.z }
-      );
-
-      if (dist <= radius) {
-        // Full damage at center, less at edges
-        const damageFalloff = 1 - (dist / radius) * 0.5;
-        const damage = Math.floor(baseDamage * damageFalloff);
-        enemy.health -= damage;
-
-        // Spawn damage number
-        const screenPos = this.renderer.worldToScreen(enemy.position);
-        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true);
-
-        // Strong knockback - increased for dramatic effect
-        const knockbackVel = calculateKnockback(
-          { x: position.x, y: position.z },
-          { x: enemy.position.x, y: enemy.position.z },
-          60  // Much stronger knockback
-        );
-        enemy.knockbackVelocity = knockbackVel;
-
-        // Check if killed
-        if (enemy.health <= 0) {
-          this.killEnemy(enemyId);
-        } else {
-          this.entities.damageEnemy(enemyId, enemy.health, ENEMY_CONFIGS[enemy.enemyType].health);
-        }
-      }
-    }
+    // Delegate damage calculation to CombatSystem
+    this.combatSystem.applyThermobaricExplosion(position, radius, baseDamage, this.enemies);
 
     // Create fire ring particle effect
     this.renderer.createThermobaricEffect(position, radius);
@@ -716,81 +714,18 @@ export class LocalGameLoop {
     const { position, radius, damage, knockbackForce } = explosion;
     const playerDamage = this.barrelManager.getPlayerDamage();
 
-    // Damage all enemies in radius
-    for (const [enemyId, enemy] of this.enemies) {
-      if (enemy.state === 'dead') continue;
-
-      const dist = distance(
-        { x: position.x, y: position.z },
-        { x: enemy.position.x, y: enemy.position.z }
-      );
-
-      if (dist <= radius) {
-        // Full damage at center, less at edges
-        const damageFalloff = 1 - (dist / radius) * 0.5;
-        const finalDamage = Math.floor(damage * damageFalloff);
-        enemy.health -= finalDamage;
-
-        // Spawn damage number
-        const screenPos = this.renderer.worldToScreen(enemy.position);
-        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, finalDamage, true);
-
-        // Strong knockback
-        const knockbackVel = calculateKnockback(
-          { x: position.x, y: position.z },
-          { x: enemy.position.x, y: enemy.position.z },
-          knockbackForce
-        );
-        enemy.knockbackVelocity = knockbackVel;
-
-        // Check if killed
-        if (enemy.health <= 0) {
-          this.killEnemy(enemyId);
-        } else {
-          this.entities.damageEnemy(enemyId, enemy.health, ENEMY_CONFIGS[enemy.enemyType].health);
-        }
-      }
-    }
-
-    // Damage player if in radius (and not dashing with i-frames)
-    if (!(this.player.isDashing && DASH_IFRAMES)) {
-      const playerDist = distance(
-        { x: position.x, y: position.z },
-        { x: this.player.position.x, y: this.player.position.z }
-      );
-
-      if (playerDist <= radius) {
-        const damageFalloff = 1 - (playerDist / radius) * 0.5;
-        const finalDamage = Math.floor(playerDamage * damageFalloff);
-
-        this.player.health -= finalDamage;
-
-        // Screen shake, chromatic aberration, and damage flash
-        this.renderer.addScreenShake(0.3);
-        this.renderer.triggerDamageEffect(0.8);
-        this.ui.triggerDamageVignette(0.4);
-        this.eventBus.emit('playerHit', {
-          position: { ...this.player.position },
-          damage: finalDamage,
-          health: this.player.health,
-        });
-
-        // Spawn damage number on player
-        const screenPos = this.renderer.worldToScreen(this.player.position);
-        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, finalDamage, false);
-
-        // Check if player died
-        if (this.player.health <= 0) {
-          // Try Last Stand first
-          if (!this.lastStandSystem.wasUsed()) {
-            this.lastStandSystem.tryTrigger(this.gameTime);
-            this.player.health = 1; // Keep alive during Last Stand
-          } else {
-            this.handlePlayerDeath();
-          }
-        }
-      }
-    }
+    // Delegate damage calculation to CombatSystem
+    this.combatSystem.applyBarrelExplosion(
+      position,
+      radius,
+      damage,
+      knockbackForce,
+      playerDamage,
+      this.enemies,
+      this.player,
+      () => !this.lastStandSystem.wasUsed() && !this.lastStandSystem.isActive(),
+      () => this.lastStandSystem.tryTrigger(this.gameTime)
+    );
   }
 
   private updateProjectiles(dt: number): void {
@@ -933,30 +868,10 @@ export class LocalGameLoop {
    * Handle projectile hitting an enemy
    */
   private handleProjectileHit(proj: ProjectileState, enemy: EnemyState): void {
-    const config = ENEMY_CONFIGS[enemy.enemyType];
-    const enemyId = enemy.id;
+    // Delegate damage calculation to CombatSystem
+    this.combatSystem.handleProjectileHit(proj, enemy);
 
-    // Damage enemy
-    enemy.health -= proj.damage;
-
-    // Trigger damage visual effects
-    this.entities.damageEnemy(enemyId, enemy.health, config.health);
-
-    // Apply knockback
-    const knockbackVel = calculateKnockback(
-      { x: proj.position.x, y: proj.position.z },
-      { x: enemy.position.x, y: enemy.position.z },
-      4
-    );
-    enemy.knockbackVelocity = knockbackVel;
-
-    // Spawn damage number
-    const screenPos = this.renderer.worldToScreen(enemy.position);
-    const offsetX = (Math.random() - 0.5) * 40;
-    const offsetY = (Math.random() - 0.5) * 30;
-    this.ui.spawnDamageNumber(screenPos.x + offsetX, screenPos.y + offsetY, proj.damage, false, 0);
-
-    // Blood burst on hit
+    // Blood burst on hit (visual effect not in CombatSystem)
     this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, 2);
     this.eventBus.emit('bloodBurst', {
       position: { ...enemy.position },
@@ -970,16 +885,6 @@ export class LocalGameLoop {
       enemyType: enemy.enemyType,
       damage: proj.damage,
     });
-
-    // Trigger hitstop
-    this.eventBus.emit('hitStop', { duration: 8 });
-    if (this.onHitstop) {
-      this.onHitstop();
-    }
-
-    if (enemy.health <= 0) {
-      this.killEnemy(enemyId, proj.weaponType);
-    }
   }
 
   /**
@@ -988,41 +893,13 @@ export class LocalGameLoop {
   private handleEnemyProjectileHit(proj: ProjectileState): void {
     if (!this.player) return;
 
-    // Shield power-up reduces damage
-    const hasShield = this.player.powerUps.shield && this.player.powerUps.shield > this.gameTime;
-    const damageMultiplier = hasShield ? POWERUP_CONFIGS.shield.damageReduction : 1;
-    const damage = proj.damage * damageMultiplier;
-
-    this.player.health -= damage;
-
-    // Spawn damage number on player
-    const screenPos = this.renderer.worldToScreen(this.player.position);
-    this.ui.spawnDamageNumber(screenPos.x, screenPos.y, Math.floor(damage), false);
-
-    // Trigger damage vignette
-    this.ui.triggerDamageVignette(hasShield ? 0.2 : 0.4);
-
-    // Chromatic aberration spike on damage
-    this.renderer.triggerDamageEffect(hasShield ? 0.4 : 0.8);
-
-    // Screen shake
-    this.renderer.addScreenShake(0.3);
-
-    // Emit player hit event
-    this.eventBus.emit('playerHit', {
-      position: { ...this.player.position },
-      damage,
-      health: this.player.health,
-    });
-
-    // Check for player death or Last Stand trigger
-    if (this.player.health <= 0 && !this.player.isDead && !this.lastStandSystem.isActive()) {
-      if (this.lastStandSystem.tryTrigger(this.gameTime)) {
-        this.player.health = 1;
-      } else {
-        this.handlePlayerDeath();
-      }
-    }
+    // Delegate damage calculation to CombatSystem
+    this.combatSystem.handleEnemyProjectileHit(
+      proj,
+      this.player,
+      () => !this.lastStandSystem.wasUsed() && !this.lastStandSystem.isActive(),
+      () => this.lastStandSystem.tryTrigger(this.gameTime)
+    );
   }
 
   /**
@@ -1035,8 +912,10 @@ export class LocalGameLoop {
     // Play explosion sound
     getAudioManager()?.playPositional('rocket_explode', explosionPos);
 
-    // Area damage to nearby enemies
-    const explosionRadius = 4;  // Increased radius
+    // Area damage constants
+    const explosionRadius = 4;
+    const baseDamage = 40;
+    const knockbackForce = 30;
 
     // Apply physics explosion to barrels
     if (this.physics && this.physicsInitialized) {
@@ -1054,41 +933,14 @@ export class LocalGameLoop {
       }
     }
 
-    for (const [enemyId, enemy] of this.enemies) {
-      if (enemy.state === 'dead') continue;
-
-      const dist = distance(
-        { x: explosionPos.x, y: explosionPos.z },
-        { x: enemy.position.x, y: enemy.position.z }
-      );
-
-      if (dist <= explosionRadius) {
-        // Damage falls off with distance
-        const damageFalloff = 1 - (dist / explosionRadius) * 0.6;
-        const damage = Math.floor(40 * damageFalloff);
-        enemy.health -= damage;
-
-        // Knockback from explosion - increased
-        const explosionKnockback = calculateKnockback(
-          { x: explosionPos.x, y: explosionPos.z },
-          { x: enemy.position.x, y: enemy.position.z },
-          30  // Stronger knockback
-        );
-        enemy.knockbackVelocity = explosionKnockback;
-
-        // Damage number
-        const screenPos = this.renderer.worldToScreen(enemy.position);
-        this.ui.spawnDamageNumber(screenPos.x, screenPos.y, damage, true, 0);
-
-        // Kill if dead
-        if (enemy.health <= 0) {
-          this.killEnemy(enemyId);
-        } else {
-          const config = ENEMY_CONFIGS[enemy.enemyType];
-          this.entities.damageEnemy(enemyId, enemy.health, config.health);
-        }
-      }
-    }
+    // Delegate damage calculation to CombatSystem
+    this.combatSystem.handleRocketExplosion(
+      explosionPos,
+      explosionRadius,
+      baseDamage,
+      knockbackForce,
+      this.enemies
+    );
   }
 
   private killEnemy(enemyId: string, weaponType?: import('@shared/types').WeaponType): void {
