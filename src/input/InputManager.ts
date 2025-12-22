@@ -56,14 +56,17 @@ export class InputManager {
   }
 
   private detectTouchDevice(): boolean {
-    return (
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0 ||
-      // @ts-expect-error - msMaxTouchPoints is IE/Edge specific
-      navigator.msMaxTouchPoints > 0 ||
-      // Check for mobile user agent as fallback
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    );
+    // Use CSS media query - most reliable way to detect PRIMARY touch input
+    // (hover: none) = no hover capability (touch devices)
+    // (pointer: coarse) = imprecise pointer (finger vs mouse)
+    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+      return true;
+    }
+    // Fallback: mobile user agent check
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      return true;
+    }
+    return false;
   }
 
   private initTouchControls(): void {

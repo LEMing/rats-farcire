@@ -102,8 +102,10 @@ export class Game {
 
     this.isMultiplayer = multiplayer;
 
-    // Enable touch controls if available
-    this.input.enableTouchControls?.();
+    // Enable touch controls only on touch devices
+    if (this.input.isTouchAvailable?.()) {
+      this.input.enableTouchControls?.();
+    }
 
     if (multiplayer) {
       this.startMultiplayer();

@@ -48,11 +48,15 @@ export class TutorialOverlay {
   }
 
   private isTouchDevice(): boolean {
-    return (
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0 ||
-      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-    );
+    // Use CSS media query - most reliable way to detect PRIMARY touch input
+    if (window.matchMedia('(hover: none) and (pointer: coarse)').matches) {
+      return true;
+    }
+    // Fallback: mobile user agent check
+    if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+      return true;
+    }
+    return false;
   }
 
   private createElement(): HTMLElement {
