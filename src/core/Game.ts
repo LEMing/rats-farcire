@@ -102,6 +102,9 @@ export class Game {
 
     this.isMultiplayer = multiplayer;
 
+    // Enable touch controls if available
+    this.input.enableTouchControls?.();
+
     if (multiplayer) {
       this.startMultiplayer();
     } else {

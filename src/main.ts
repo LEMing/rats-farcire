@@ -73,7 +73,8 @@ const btnMultiplayer = document.getElementById('btn-multiplayer')!;
 // Helper to wait for WebGL context release
 const waitForContextRelease = () => new Promise((resolve) => setTimeout(resolve, 100));
 
-btnSingleplayer.addEventListener('click', async () => {
+// Start singleplayer game handler
+async function startSingleplayer() {
   // Stop and dispose menu renderer
   if (menuRenderer) {
     menuRenderer.dispose();
@@ -88,9 +89,10 @@ btnSingleplayer.addEventListener('click', async () => {
   const preloadedBuffers = await gameLoader.loadAll();
 
   await game.start(false, preloadedBuffers);
-});
+}
 
-btnMultiplayer.addEventListener('click', async () => {
+// Start multiplayer game handler
+async function startMultiplayer() {
   // Stop and dispose menu renderer
   if (menuRenderer) {
     menuRenderer.dispose();
@@ -105,6 +107,20 @@ btnMultiplayer.addEventListener('click', async () => {
   const preloadedBuffers = await gameLoader.loadAll();
 
   await game.start(true, preloadedBuffers);
+}
+
+// Click handlers (desktop)
+btnSingleplayer.addEventListener('click', startSingleplayer);
+btnMultiplayer.addEventListener('click', startMultiplayer);
+
+// Touch handlers (mobile) - use touchend for better responsiveness
+btnSingleplayer.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  startSingleplayer();
+});
+btnMultiplayer.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  startMultiplayer();
 });
 
 // Hide cursor during gameplay

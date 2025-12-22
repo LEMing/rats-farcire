@@ -22,7 +22,9 @@
 
       #game-container {
         width: 100vw;
+        /* Use dvh for iOS/Chrome that accounts for browser chrome */
         height: 100vh;
+        height: 100dvh;
         position: relative;
       }
 
@@ -143,9 +145,11 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        height: 110vh;
-        width: auto;
+        max-height: 110vh;
         max-width: 105vw;
+        width: auto;
+        height: auto;
+        object-fit: contain;
         z-index: 2;
         pointer-events: none;
         opacity: 0.9;
@@ -228,6 +232,11 @@
         transform: scale(0.98);
       }
 
+      /* Enable touch events on menu buttons despite game-container's touch-action: none */
+      #menu-screen button {
+        touch-action: manipulation;
+      }
+
       #menu-footer {
         margin-top: 30px;
         font-size: 12px;
@@ -250,8 +259,8 @@
         }
 
         #hud {
-          top: env(safe-area-inset-top, 10px);
-          left: env(safe-area-inset-left, 10px);
+          top: calc(env(safe-area-inset-top, 20px) + 15px);
+          left: calc(env(safe-area-inset-left, 10px) + 15px);
           font-size: 14px;
         }
 
@@ -260,10 +269,9 @@
           height: 16px;
         }
 
+        /* Hide wave/enemies on mobile - not useful */
         #wave-info {
-          top: env(safe-area-inset-top, 10px);
-          right: 60px; /* Make room for weapon buttons */
-          font-size: 16px;
+          display: none !important;
         }
 
         #network-info {

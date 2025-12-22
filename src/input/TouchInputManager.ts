@@ -1,12 +1,14 @@
 /**
  * TouchInputManager - Mobile touch controls for the game
  *
- * Features:
- * - Dual virtual joysticks (move + aim)
- * - Auto-fire when aim joystick active
- * - Dash button + double-tap on move joystick
- * - Thermobaric button
- * - Weapon slot buttons
+ * Layout:
+ * - LEFT: Joystick (bottom), Dash + Thermobaric buttons (top)
+ * - RIGHT: Fire button (large), Weapon buttons (top)
+ *
+ * Controls:
+ * - Movement joystick controls both move and aim direction
+ * - Fire button to shoot
+ * - Double-tap joystick for dash
  */
 
 import type { InputState } from '@shared/types';
@@ -35,20 +37,25 @@ export class TouchInputManager {
   private config: TouchInputConfig;
 
   private moveJoystick: VirtualJoystick;
-  private aimJoystick: VirtualJoystick;
 
   private controlsContainer: HTMLElement;
   private dashButton: HTMLElement;
   private thermobaricButton: HTMLElement;
+  private fireButton: HTMLElement;
   private weaponButtons: HTMLElement[] = [];
   private weaponContainer: HTMLElement;
 
   private dashPressed: boolean = false;
   private thermobaricPressed: boolean = false;
+  private firePressed: boolean = false;
   private selectedWeaponSlot: number | null = null;
 
   private sequence: number = 0;
   private isVisible: boolean = false;
+
+  // Track last aim direction for when player stops moving
+  private lastAimX: number = 0;
+  private lastAimY: number = -1;
 
   constructor(container: HTMLElement, config: Partial<TouchInputConfig> = {}) {
     this.container = container;
@@ -58,7 +65,7 @@ export class TouchInputManager {
     this.controlsContainer = this.createControlsContainer();
     this.container.appendChild(this.controlsContainer);
 
-    // Create joysticks
+    // Create single joystick for movement (aim follows movement direction)
     this.moveJoystick = new VirtualJoystick(this.controlsContainer, {
       side: 'left',
       baseRadius: this.config.joystickBaseRadius,
@@ -67,16 +74,6 @@ export class TouchInputManager {
       opacity: this.config.joystickOpacity,
       color: 'rgba(100, 150, 255, 0.25)',
       stickColor: 'rgba(100, 150, 255, 0.6)',
-    });
-
-    this.aimJoystick = new VirtualJoystick(this.controlsContainer, {
-      side: 'right',
-      baseRadius: this.config.joystickBaseRadius,
-      stickRadius: this.config.joystickStickRadius,
-      deadZone: this.config.joystickDeadZone,
-      opacity: this.config.joystickOpacity,
-      color: 'rgba(255, 100, 100, 0.25)',
-      stickColor: 'rgba(255, 100, 100, 0.6)',
     });
 
     // Double-tap on move joystick triggers dash
@@ -88,10 +85,12 @@ export class TouchInputManager {
     // Create UI buttons
     this.dashButton = this.createDashButton();
     this.thermobaricButton = this.createThermobaricButton();
+    this.fireButton = this.createFireButton();
     this.weaponContainer = this.createWeaponButtons();
 
     this.controlsContainer.appendChild(this.dashButton);
     this.controlsContainer.appendChild(this.thermobaricButton);
+    this.controlsContainer.appendChild(this.fireButton);
     this.controlsContainer.appendChild(this.weaponContainer);
 
     this.hide();
@@ -101,11 +100,12 @@ export class TouchInputManager {
     const el = document.createElement('div');
     el.id = 'touch-controls';
     el.style.cssText = `
-      position: absolute;
+      position: fixed;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
       pointer-events: auto;
       touch-action: none;
       z-index: 100;
@@ -143,8 +143,8 @@ export class TouchInputManager {
 
   private createDashButton(): HTMLElement {
     const btn = this.createButton('⚡', 'rgba(100, 200, 255, 0.4)');
-    btn.style.right = `${130 + this.config.buttonSpacing}px`;
-    btn.style.bottom = `${20}px`;
+    btn.style.left = `${20}px`;
+    btn.style.top = `30%`;
 
     btn.addEventListener('touchstart', (e) => {
       e.preventDefault();
@@ -166,8 +166,8 @@ export class TouchInputManager {
 
   private createThermobaricButton(): HTMLElement {
     const btn = this.createButton('💥', 'rgba(255, 100, 50, 0.4)', 55);
-    btn.style.right = `${130 + this.config.buttonSize + this.config.buttonSpacing * 2}px`;
-    btn.style.bottom = `${20}px`;
+    btn.style.left = `${20}px`;
+    btn.style.top = `40%`;
 
     btn.addEventListener('touchstart', (e) => {
       e.preventDefault();
@@ -187,15 +187,38 @@ export class TouchInputManager {
     return btn;
   }
 
+  private createFireButton(): HTMLElement {
+    const btn = this.createButton('🔥', 'rgba(255, 50, 50, 0.5)', 70);
+    btn.style.right = `${20}px`;
+    btn.style.top = `60%`;
+
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.firePressed = true;
+      btn.style.transform = 'scale(0.9)';
+      btn.style.opacity = '1';
+    }, { passive: false });
+
+    btn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.firePressed = false;
+      btn.style.transform = 'scale(1)';
+      btn.style.opacity = '0.7';
+    }, { passive: false });
+
+    return btn;
+  }
+
   private createWeaponButtons(): HTMLElement {
     const container = document.createElement('div');
     container.style.cssText = `
       position: absolute;
-      top: 60px;
-      right: 10px;
+      top: 20%;
+      right: 15px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     `;
 
     const weaponIcons = ['🔫', '🎯', '⚙️', '🚀', '💣'];
@@ -249,39 +272,44 @@ export class TouchInputManager {
 
   getState(): InputState {
     const moveState = this.moveJoystick.getState();
-    const aimState = this.aimJoystick.getState();
 
     this.sequence++;
 
-    // For aim direction, use joystick if active, otherwise keep last direction
-    let aimX = aimState.x;
-    let aimY = aimState.y;
+    // Movement: direct mapping from joystick
+    // Joystick X = strafe (left/right), Joystick Y = forward/back
+    // No inversion needed - joystick up = move forward in game
+    const moveX = moveState.x;
+    const moveY = moveState.y;
 
-    // Normalize aim direction
-    const aimLen = Math.sqrt(aimX * aimX + aimY * aimY);
-    if (aimLen > 0.01) {
-      aimX /= aimLen;
-      aimY /= aimLen;
+    // Aim follows movement direction (single-stick controls)
+    // When moving, aim in movement direction
+    // When stationary, keep last aim direction
+    let aimX = moveX;
+    let aimY = moveY;
+
+    const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+    if (moveMag > 0.1) {
+      // Normalize aim to movement direction
+      aimX = moveX / moveMag;
+      aimY = moveY / moveMag;
+      // Store last aim direction
+      this.lastAimX = aimX;
+      this.lastAimY = aimY;
     } else {
-      // Default aim direction (forward)
-      aimX = 0;
-      aimY = -1;
+      // Use last aim direction when not moving
+      aimX = this.lastAimX;
+      aimY = this.lastAimY;
     }
 
-    // Convert screen Y to world Z (inverted)
-    // In screen space, Y+ is down, but in game Y+ should be forward
-    const worldMoveY = -moveState.y;
-    const worldAimY = -aimY;
-
     const state: InputState = {
-      moveX: moveState.x,
-      moveY: worldMoveY,
+      moveX: moveX,
+      moveY: moveY,
       aimX: aimX,
-      aimY: worldAimY,
-      shooting: aimState.active && aimState.magnitude > 0.3, // Auto-fire when aiming
-      interact: false, // TODO: Add interact button if needed
+      aimY: aimY,
+      shooting: this.firePressed,
+      interact: false,
       dash: this.dashPressed,
-      sprint: false, // No sprint on mobile, could add later
+      sprint: false,
       weaponSlot: this.selectedWeaponSlot,
       thermobaric: this.thermobaricPressed,
       escapePressed: false,
@@ -310,7 +338,6 @@ export class TouchInputManager {
 
   destroy(): void {
     this.moveJoystick.destroy();
-    this.aimJoystick.destroy();
     this.controlsContainer.remove();
   }
 }

@@ -49,6 +49,9 @@ export interface IInputManager {
   getState(): InputState;
   readonly mouseX: number;
   readonly mouseY: number;
+  enableTouchControls?(): void;
+  disableTouchControls?(): void;
+  isTouchAvailable?(): boolean;
 }
 
 /**

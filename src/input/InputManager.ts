@@ -45,9 +45,13 @@ export class InputManager {
       }
     });
 
-    // Initialize touch controls if on touch device
+    // Note: Touch controls are initialized but hidden until game starts
+    // Call enableTouchControls() when game starts
     if (this.isTouchDevice) {
-      this.initTouchControls();
+      this.touchInput = new TouchInputManager(this.container);
+      // Keep hidden initially - will be shown when game starts
+      this.touchInput.hide();
+      console.log('[InputManager] Touch device detected, controls ready');
     }
   }
 
