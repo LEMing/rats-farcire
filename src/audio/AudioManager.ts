@@ -52,7 +52,6 @@ export class AudioManager {
       await this.musicController.preload(MUSIC_TRACKS, preloadedBuffers);
       this.subscribeToEvents();
       this.initialized = true;
-      console.log('[AudioManager] Initialized');
     } catch (error) {
       console.error('[AudioManager] Initialization failed:', error);
     }
@@ -101,7 +100,7 @@ export class AudioManager {
 
           this.singleSounds.set(id, sound);
         }
-      } catch (error) {
+      } catch {
         // Sound file missing - this is expected until we add placeholder files
         console.warn(`[AudioManager] Sound not found: ${id} (${config.path})`);
       }

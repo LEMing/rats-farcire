@@ -54,7 +54,6 @@ async function initMenuBackground() {
   try {
     await menuRenderer.init();
     menuRenderer.start();
-    console.log('Menu 3D background started successfully');
   } catch (e) {
     // Menu background is optional - game can still work without it
     console.warn('Menu background failed to initialize:', e);

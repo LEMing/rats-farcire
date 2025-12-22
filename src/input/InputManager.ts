@@ -51,7 +51,6 @@ export class InputManager {
       this.touchInput = new TouchInputManager(this.container);
       // Keep hidden initially - will be shown when game starts
       this.touchInput.hide();
-      console.log('[InputManager] Touch device detected, controls ready');
     }
   }
 
@@ -73,7 +72,6 @@ export class InputManager {
     this.touchInput = new TouchInputManager(this.container);
     this.useTouchControls = true;
     this.touchInput.show();
-    console.log('[InputManager] Touch controls initialized');
   }
 
   enableTouchControls(): void {

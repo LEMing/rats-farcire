@@ -302,7 +302,6 @@ export class LocalGameLoop {
       // Now that props are registered, connect physics to create bodies
       this.propManager.setPhysicsManager(this.physics);
 
-      console.log(`[LocalGameLoop] Physics initialized, props: ${this.propManager.getPropCount()}`);
       this.physicsInitialized = true;
     } catch (error) {
       console.error('[Physics] Failed to initialize:', error);

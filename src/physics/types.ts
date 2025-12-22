@@ -100,7 +100,7 @@ export interface DebrisPiece {
   id: string;
   body: RAPIER.RigidBody;
   collider: RAPIER.Collider;
-  mesh: THREE.Mesh;
+  mesh: THREE.Mesh | null;
   createdAt: number;
   lifetime: number;
 }

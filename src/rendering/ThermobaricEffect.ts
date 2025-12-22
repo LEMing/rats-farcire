@@ -188,8 +188,6 @@ class ExplosionResources {
     for (const mesh of tempMeshes) {
       scene.remove(mesh);
     }
-
-    console.log('ThermobaricEffect shaders pre-warmed');
   }
 }
 
@@ -517,7 +515,6 @@ export class ThermobaricEffect {
 
     // Force render to compile instanced mesh shaders
     renderer.render(scene, new THREE.PerspectiveCamera());
-    console.log('ThermobaricEffect instanced meshes pre-warmed');
   }
 
   update(): boolean {

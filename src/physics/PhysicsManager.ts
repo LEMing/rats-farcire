@@ -584,7 +584,7 @@ export class PhysicsManager {
         id,
         body,
         collider,
-        mesh: null as any, // Mesh created by renderer
+        mesh: null, // Mesh created by renderer
         createdAt: Date.now(),
         lifetime: PHYSICS_CONSTANTS.DEBRIS_LIFETIME,
       });

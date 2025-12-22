@@ -35,7 +35,6 @@ export class PhysicsColliderBuilder {
       );
     }
 
-    console.log(`[Physics] Created ${wallRects.length} wall colliders from ${this.countWallTiles(mapData)} wall tiles`);
   }
 
   /**
@@ -81,19 +80,5 @@ export class PhysicsColliderBuilder {
     }
 
     return rects;
-  }
-
-  /**
-   * Count total wall tiles for logging
-   */
-  private countWallTiles(mapData: MapData): number {
-    let count = 0;
-    for (let y = 0; y < mapData.height; y++) {
-      for (let x = 0; x < mapData.width; x++) {
-        const tile = mapData.tiles[y]?.[x];
-        if (tile && !tile.walkable) count++;
-      }
-    }
-    return count;
   }
 }

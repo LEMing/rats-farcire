@@ -7,7 +7,6 @@ import type {
   ProjectileState,
   PickupState,
   ServerMessage,
-  Vec2,
   EnemyType,
 } from '../shared/types';
 import {

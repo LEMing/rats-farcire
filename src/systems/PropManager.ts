@@ -62,20 +62,12 @@ export class PropManager {
   setPhysicsManager(physics: PhysicsManager): void {
     this.physics = physics;
 
-    console.log(`[PropManager] setPhysicsManager called, props in map: ${this.props.size}`);
-
     // Create physics bodies for existing props
-    let attempted = 0;
-    let created = 0;
     for (const prop of this.props.values()) {
       if (!prop.isDestroyed) {
-        attempted++;
-        if (this.createPhysicsBody(prop)) {
-          created++;
-        }
+        this.createPhysicsBody(prop);
       }
     }
-    console.log(`[PropManager] Physics connected - attempted: ${attempted}, created: ${created} bodies`);
   }
 
   /**
@@ -190,11 +182,8 @@ export class PropManager {
    */
   private createPhysicsBody(prop: PropState): boolean {
     if (!this.physics) {
-      console.log(`[PropManager] createPhysicsBody FAILED - no physics for ${prop.id}`);
       return false;
     }
-
-    console.log(`[PropManager] Creating body for ${prop.id} at (${prop.position.x.toFixed(1)}, ${prop.position.z.toFixed(1)})`);
 
     switch (prop.type) {
       case 'crate': {
@@ -241,12 +230,7 @@ export class PropManager {
       }
     }
 
-    // Verify body was created
-    const hasBody = this.physics.hasBody(prop.id);
-    if (!hasBody) {
-      console.log(`[PropManager] WARNING: Body NOT created for ${prop.id}!`);
-    }
-    return hasBody;
+    return this.physics.hasBody(prop.id);
   }
 
   /**
@@ -308,8 +292,6 @@ export class PropManager {
     return null;
   }
 
-  private resolveLogCounter = 0;
-
   /**
    * Resolve collision - push entity out of prop and return corrected position
    * Also applies impulse to the prop
@@ -323,12 +305,6 @@ export class PropManager {
     let correctedX = entityX;
     let correctedZ = entityZ;
     let collided = false;
-
-    // One-time debug log
-    if (this.resolveLogCounter === 0) {
-      console.log(`[PropManager] resolveCollision first call - props: ${this.props.size}, physics: ${!!this.physics}`);
-    }
-    this.resolveLogCounter++;
 
     for (const prop of this.props.values()) {
       if (prop.isDestroyed) continue;
@@ -353,48 +329,28 @@ export class PropManager {
         const nx = dx / dist;
         const nz = dz / dist;
 
-        // Debug log collision (throttled)
-        if (this.resolveLogCounter % 30 === 0) {
-          console.log(`[PropManager] COLLISION with ${prop.id} - overlap: ${overlap.toFixed(3)}`);
-        }
-
         // Move entity out of prop
         correctedX += nx * overlap;
         correctedZ += nz * overlap;
 
         // Push the prop in opposite direction
-        if (this.physics) {
-          // Much stronger impulse - base force + overlap bonus
-          const baseImpulse = pushForce * 50; // Strong base push
-          const overlapBonus = overlap * pushForce * 100; // Extra for deep overlap
+        if (this.physics && this.physics.hasBody(prop.id)) {
+          // Strong impulse - base force + overlap bonus
+          const baseImpulse = pushForce * 50;
+          const overlapBonus = overlap * pushForce * 100;
           const totalStrength = baseImpulse + overlapBonus;
-          const hasBody = this.physics.hasBody(prop.id);
 
-          // Debug log (throttled)
-          if (this.resolveLogCounter % 30 === 0) {
-            console.log(`[PropManager] Applying impulse to ${prop.id} - hasBody: ${hasBody}, strength: ${totalStrength.toFixed(1)}`);
-          }
-
-          if (hasBody) {
-            this.physics.applyImpulse(prop.id, {
-              x: -nx * totalStrength,
-              y: 2, // Small upward to help overcome friction
-              z: -nz * totalStrength,
-            });
-          }
-        } else {
-          if (this.resolveLogCounter % 30 === 0) {
-            console.log(`[PropManager] NO PHYSICS - can't apply impulse to ${prop.id}`);
-          }
+          this.physics.applyImpulse(prop.id, {
+            x: -nx * totalStrength,
+            y: 2, // Small upward to help overcome friction
+            z: -nz * totalStrength,
+          });
         }
       }
     }
 
     return { x: correctedX, z: correctedZ, collided };
   }
-
-  private debugLogCounter = 0;
-  private hasLoggedOnce = false;
 
   /**
    * Push props when an entity moves near them (simulates collision)
@@ -406,24 +362,7 @@ export class PropManager {
     entityRadius: number,
     pushForce: number = 5
   ): void {
-    // One-time debug log
-    if (!this.hasLoggedOnce) {
-      this.hasLoggedOnce = true;
-      console.log(`[PropManager] First pushPropsFromEntity call - physics: ${!!this.physics}, props: ${this.props.size}`);
-      if (this.props.size > 0) {
-        const firstProp = this.props.values().next().value;
-        console.log(`[PropManager] Sample prop:`, firstProp?.id, firstProp?.position);
-      }
-    }
-
-    if (!this.physics) {
-      if (this.debugLogCounter++ % 600 === 0) {
-        console.log(`[PropManager] pushPropsFromEntity: No physics! Props: ${this.props.size}`);
-      }
-      return;
-    }
-
-    this.debugLogCounter++;
+    if (!this.physics) return;
 
     for (const prop of this.props.values()) {
       if (prop.isDestroyed) continue;
@@ -449,11 +388,6 @@ export class PropManager {
         // Push strength based on overlap depth
         const overlap = collisionDist - dist;
         const strength = overlap * pushForce;
-
-        // Debug: Log collision
-        if (this.debugLogCounter % 60 === 0) {
-          console.log(`[PropManager] Collision! prop=${prop.id} dist=${dist.toFixed(2)} colDist=${collisionDist.toFixed(2)} strength=${strength.toFixed(2)}`);
-        }
 
         // Apply impulse outward from entity
         this.physics.applyImpulse(prop.id, {

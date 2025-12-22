@@ -32,7 +32,7 @@ export class MenuRenderer {
 
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
-  private renderer!: THREE.WebGPURenderer;
+  private renderer: THREE.WebGPURenderer | null = null;
   private postProcessing!: THREE.PostProcessing;
 
   private readonly timeUniform = uniform(0);
@@ -63,7 +63,7 @@ export class MenuRenderer {
     try {
       this.initializeScene();
       this.initializeRenderer();
-      await this.renderer.init();
+      await this.renderer!.init();
 
       this.initializeFactories();
       this.setupScene();
@@ -155,8 +155,6 @@ export class MenuRenderer {
       // Ignore removal errors
     }
     this.canvas = null;
-
-    // @ts-expect-error - clearing internal reference
     this.renderer = null;
   }
 
@@ -296,7 +294,7 @@ export class MenuRenderer {
 
   private setupPostProcessing(): void {
     try {
-      this.postProcessing = new THREE.PostProcessing(this.renderer);
+      this.postProcessing = new THREE.PostProcessing(this.renderer!);
 
       const scenePass = pass(this.scene, this.camera);
       const color = scenePass.getTextureNode('output');
@@ -503,7 +501,7 @@ export class MenuRenderer {
   private render(): void {
     if (this.postProcessing) {
       this.postProcessing.render();
-    } else {
+    } else if (this.renderer) {
       this.renderer.render(this.scene, this.camera);
     }
   }

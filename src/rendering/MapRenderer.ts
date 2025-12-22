@@ -74,8 +74,6 @@ export class MapRenderer {
   setPropManager(propManager: PropManager): void {
     this.propManager = propManager;
 
-    console.log(`[MapRenderer] Registering ${this.pendingProps.length} pending props`);
-
     // Register all pending props
     for (const prop of this.pendingProps) {
       switch (prop.type) {
@@ -91,7 +89,6 @@ export class MapRenderer {
       }
     }
     this.pendingProps = [];
-    console.log(`[MapRenderer] PropManager set, total props: ${propManager.getPropCount()}`);
   }
 
   /**

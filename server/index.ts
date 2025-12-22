@@ -110,7 +110,7 @@ class GameServer {
 
     // Join room
     client.roomId = targetRoom.id;
-    const playerData = targetRoom.addPlayer(client.id, client.name, client.ws);
+    targetRoom.addPlayer(client.id, client.name, client.ws);
 
     // Send joined confirmation with map data
     this.send(client.ws, {
