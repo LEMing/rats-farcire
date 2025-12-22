@@ -43,7 +43,16 @@ export class TutorialOverlay {
     setTimeout(() => {
       document.addEventListener('keydown', this.handleKeyDown);
       document.addEventListener('mousedown', this.handleClick);
+      document.addEventListener('touchstart', this.handleClick);
     }, 100);
+  }
+
+  private isTouchDevice(): boolean {
+    return (
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    );
   }
 
   private createElement(): HTMLElement {
@@ -68,12 +77,11 @@ export class TutorialOverlay {
       animation: tutorialFadeIn 0.4s ease-out forwards;
     `;
 
-    container.innerHTML = this.createContent();
+    container.innerHTML = this.isTouchDevice() ? this.createTouchContent() : this.createDesktopContent();
     return container;
   }
 
-  private createContent(): string {
-    // Match #menu-content panel style exactly
+  private getStyles(): string {
     return `
       <style>
         @keyframes tutorialFadeIn {
@@ -89,7 +97,12 @@ export class TutorialOverlay {
           50% { opacity: 1; }
         }
       </style>
+    `;
+  }
 
+  private createDesktopContent(): string {
+    return `
+      ${this.getStyles()}
       <div style="
         display: flex;
         flex-direction: column;
@@ -138,6 +151,55 @@ export class TutorialOverlay {
     `;
   }
 
+  private createTouchContent(): string {
+    return `
+      ${this.getStyles()}
+      <div style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 30px 40px;
+        background: rgba(10, 5, 15, 0.6);
+        border-radius: 12px;
+        border: 2px solid rgba(170, 34, 255, 0.3);
+        backdrop-filter: blur(20px);
+        box-shadow: 0 0 80px rgba(0, 0, 0, 0.8), 0 0 40px rgba(170, 34, 255, 0.2);
+        font-family: 'Courier New', monospace;
+      ">
+        <div style="
+          font-size: 20px;
+          color: #ff44aa;
+          margin-bottom: 25px;
+          text-shadow: 0 0 20px rgba(255, 68, 170, 0.6);
+          letter-spacing: 4px;
+          font-weight: bold;
+        ">TOUCH CONTROLS</div>
+
+        <div style="
+          display: grid;
+          grid-template-columns: auto auto;
+          gap: 10px 30px;
+          align-items: center;
+        ">
+          ${this.createControlRow('🕹️ LEFT', 'MOVE & AIM')}
+          ${this.createControlRow('🔥 RIGHT', 'FIRE')}
+          ${this.createControlRow('⚡ BUTTON', 'DASH')}
+          ${this.createControlRow('💥 BUTTON', 'BOMB')}
+          ${this.createControlRow('🔫 BUTTONS', 'WEAPONS')}
+          ${this.createControlRow('2x TAP', 'DASH')}
+        </div>
+
+        <div style="
+          margin-top: 25px;
+          font-size: 12px;
+          color: #665577;
+          letter-spacing: 2px;
+          animation: hintBlink 2s ease-in-out infinite;
+        ">TAP TO START</div>
+      </div>
+    `;
+  }
+
   private createControlRow(key: string, action: string): string {
     return `
       <div style="
@@ -170,6 +232,7 @@ export class TutorialOverlay {
     // Remove listeners immediately
     document.removeEventListener('keydown', this.handleKeyDown);
     document.removeEventListener('mousedown', this.handleClick);
+    document.removeEventListener('touchstart', this.handleClick);
 
     // Fade out animation
     this.container.style.animation = `tutorialFadeOut ${this.config.fadeOutDuration}ms ease-out forwards`;
@@ -187,6 +250,7 @@ export class TutorialOverlay {
   destroy(): void {
     document.removeEventListener('keydown', this.handleKeyDown);
     document.removeEventListener('mousedown', this.handleClick);
+    document.removeEventListener('touchstart', this.handleClick);
     this.container.remove();
   }
 }
