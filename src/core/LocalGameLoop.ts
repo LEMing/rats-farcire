@@ -48,6 +48,7 @@ import { PickupManager } from '../systems/PickupManager';
 import { LastStandSystem } from '../systems/LastStandSystem';
 import { BarrelManager, ExplosionResult } from '../systems/BarrelManager';
 import { PropManager } from '../systems/PropManager';
+import { DeathEffectsSystem } from '../systems/DeathEffectsSystem';
 import { PhysicsManager } from '../physics/PhysicsManager';
 import { PhysicsColliderBuilder } from '../physics/PhysicsColliderBuilder';
 
@@ -83,6 +84,7 @@ export class LocalGameLoop {
   private lastStandSystem!: LastStandSystem;
   private barrelManager!: BarrelManager;
   private propManager!: PropManager;
+  private deathEffectsSystem!: DeathEffectsSystem;
 
   // Cleanup queue for delayed entity removal (replaces setTimeout)
   private cleanupQueue = new CleanupQueue();
@@ -220,6 +222,27 @@ export class LocalGameLoop {
 
     // Initialize prop manager for physics-enabled decorations
     this.propManager = new PropManager();
+
+    // Initialize death effects system
+    this.deathEffectsSystem = new DeathEffectsSystem(mapData, {
+      spawnBloodBurst: (position, enemyType, count) => {
+        this.renderer.spawnBloodBurst(position, enemyType, count);
+        this.eventBus.emit('bloodBurst', { position: { ...position }, enemyType, intensity: count });
+      },
+      spawnBloodDecal: (x, z, size) => this.renderer.spawnBloodDecal(x, z, size),
+      spawnGibs: (position, count) => this.renderer.spawnGibs(position, count),
+      spawnWallSplatter: (x, z, y, face, size) => this.renderer.spawnWallSplatter(x, z, y, face, size),
+      triggerKillFlash: () => this.ui.triggerKillFlash(),
+      registerKill: () => this.ui.registerKill(),
+      spawnScorePopup: (x, y, score, combo) => this.ui.spawnScorePopup(x, y, score, combo),
+      addScreenShake: (intensity) => {
+        this.renderer.addScreenShake(intensity);
+        this.eventBus.emit('screenShake', { intensity });
+      },
+      markEntityBloody: (entityId, x, z) => this.renderer.markEntityBloody(entityId, x, z),
+      fadeOutEnemy: (enemyId, duration) => this.entities.fadeOutEnemy(enemyId, duration),
+      worldToScreen: (worldPos) => this.renderer.worldToScreen(worldPos),
+    });
 
     // Start physics initialization (async)
     this.initPhysics();
@@ -1104,28 +1127,14 @@ export class LocalGameLoop {
       this.ui.spawnHealNumber(screenPos.x, screenPos.y, healAmount);
     }
 
-    // === VISUAL FEEDBACK ===
-
-    // Kill flash effect
-    this.ui.triggerKillFlash();
-
-    // Register kill for kill rating system (DOUBLE KILL, MASSACRE, etc.)
-    this.ui.registerKill();
-
-    // Mark player as bloody (will leave blood footprints)
-    this.renderer.markEntityBloody(this.player.id, this.player.position.x, this.player.position.z);
-
-    // Score popup at enemy position
-    const screenPos = this.renderer.worldToScreen(enemy.position);
-    this.ui.spawnScorePopup(screenPos.x, screenPos.y, finalScore, this.player.comboCount);
-
-    // === WEAPON-SPECIFIC DEATH EFFECTS ===
-    this.spawnWeaponDeathEffect(enemy, weaponType);
-
-    // Screen shake (bigger for tanks and explosive weapons)
-    let shakeIntensity = enemy.enemyType === 'tank' ? 0.8 : 0.4;
-    if (weaponType === 'shotgun') shakeIntensity *= 1.5;
-    if (weaponType === 'rocket') shakeIntensity *= 2.0;
+    // === VISUAL FEEDBACK (delegated to DeathEffectsSystem) ===
+    const shakeIntensity = this.deathEffectsSystem.handleEnemyDeath(
+      enemy,
+      { id: this.player.id, position: this.player.position },
+      finalScore,
+      this.player.comboCount,
+      weaponType
+    );
     this.renderer.addScreenShake(shakeIntensity);
     this.eventBus.emit('screenShake', { intensity: shakeIntensity });
 
@@ -1165,185 +1174,6 @@ export class LocalGameLoop {
   private spawnPowerUp(position: Vec3): void {
     const pickup = this.pickupManager.spawnPowerUp(position);
     this.pickups.set(pickup.id, pickup);
-  }
-
-  /**
-   * Spawn weapon-specific death effects for visceral feedback
-   */
-  private spawnWeaponDeathEffect(enemy: EnemyState, weaponType?: import('@shared/types').WeaponType): void {
-    const isTank = enemy.enemyType === 'tank';
-    const baseParticles = isTank ? 35 : 20;
-    const baseDecalSize = isTank ? 1.8 : 1.2;
-
-    switch (weaponType) {
-      case 'shotgun':
-        // EXPLOSIVE - massive blood burst, many gibs, wide splatter
-        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 2);
-        this.renderer.spawnGibs(enemy.position, isTank ? 10 : 6);
-        // Spread decals in a wide cone
-        for (let i = 0; i < 5; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = 0.5 + Math.random() * 2;
-          this.renderer.spawnBloodDecal(
-            enemy.position.x + Math.cos(angle) * dist,
-            enemy.position.z + Math.sin(angle) * dist,
-            0.6 + Math.random() * 0.8
-          );
-        }
-        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 1.5);
-        break;
-
-      case 'rifle': {
-        // PRECISION - clean kill, focused blood spray, single large decal
-        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles);
-        // Directional blood spray (behind enemy)
-        const dirX = enemy.position.x - (this.player?.position.x ?? 0);
-        const dirZ = enemy.position.z - (this.player?.position.z ?? 0);
-        const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
-        for (let i = 0; i < 3; i++) {
-          const spread = (Math.random() - 0.5) * 0.5;
-          this.renderer.spawnBloodDecal(
-            enemy.position.x + (dirX / len + spread) * (1 + i * 0.5),
-            enemy.position.z + (dirZ / len + spread) * (1 + i * 0.5),
-            0.4 + Math.random() * 0.4
-          );
-        }
-        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize);
-        break;
-      }
-
-      case 'machinegun':
-        // BRUTAL - multiple small blood bursts (like riddled with bullets)
-        for (let i = 0; i < 3; i++) {
-          setTimeout(() => {
-            const offset = { x: (Math.random() - 0.5) * 0.5, z: (Math.random() - 0.5) * 0.5 };
-            this.renderer.spawnBloodBurst(
-              { x: enemy.position.x + offset.x, y: enemy.position.y, z: enemy.position.z + offset.z },
-              enemy.enemyType,
-              Math.floor(baseParticles / 3)
-            );
-          }, i * 30);
-        }
-        // Multiple small decals
-        for (let i = 0; i < 4; i++) {
-          this.renderer.spawnBloodDecal(
-            enemy.position.x + (Math.random() - 0.5) * 1.5,
-            enemy.position.z + (Math.random() - 0.5) * 1.5,
-            0.3 + Math.random() * 0.4
-          );
-        }
-        break;
-
-      case 'rocket':
-        // VAPORIZED - huge explosion, massive blood cloud, body chunks everywhere
-        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 3);
-        this.renderer.spawnGibs(enemy.position, isTank ? 15 : 8);
-        // Large central crater of blood
-        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 2);
-        // Ring of smaller splats
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2;
-          const dist = 1.5 + Math.random();
-          this.renderer.spawnBloodDecal(
-            enemy.position.x + Math.cos(angle) * dist,
-            enemy.position.z + Math.sin(angle) * dist,
-            0.4 + Math.random() * 0.3
-          );
-        }
-        break;
-
-      case 'pistol':
-      default:
-        // Standard death - moderate blood
-        this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles);
-        this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize);
-        // Extra smaller splats
-        for (let i = 0; i < 2; i++) {
-          this.renderer.spawnBloodDecal(
-            enemy.position.x + (Math.random() - 0.5) * 2,
-            enemy.position.z + (Math.random() - 0.5) * 2,
-            0.5 + Math.random() * 0.5
-          );
-        }
-        break;
-    }
-
-    // Spawn wall blood splatters if enemy died near a wall
-    this.spawnWallBloodSplatters(enemy.position, baseDecalSize);
-
-    // Emit blood burst event for any listeners
-    this.eventBus.emit('bloodBurst', {
-      position: { ...enemy.position },
-      enemyType: enemy.enemyType,
-      intensity: baseParticles,
-    });
-  }
-
-  /**
-   * Check for nearby walls and spawn blood splatters on them
-   */
-  private spawnWallBloodSplatters(position: Vec3, intensity: number): void {
-    // Convert world position to tile coordinates
-    const tileX = Math.floor(position.x / TILE_SIZE);
-    const tileZ = Math.floor(position.z / TILE_SIZE);
-
-    // Check adjacent tiles for walls and spawn splatters
-    const wallCheckDistance = 1.5; // How close to wall for splatter
-    const directions: Array<{ dx: number; dz: number; face: 'north' | 'south' | 'east' | 'west' }> = [
-      { dx: 0, dz: -1, face: 'south' },  // Wall to north, face south
-      { dx: 0, dz: 1, face: 'north' },   // Wall to south, face north
-      { dx: 1, dz: 0, face: 'west' },    // Wall to east, face west
-      { dx: -1, dz: 0, face: 'east' },   // Wall to west, face east
-    ];
-
-    for (const dir of directions) {
-      const checkX = tileX + dir.dx;
-      const checkZ = tileZ + dir.dz;
-
-      // Bounds check
-      if (checkX < 0 || checkX >= this.mapData.width || checkZ < 0 || checkZ >= this.mapData.height) {
-        continue;
-      }
-
-      const tile = this.mapData.tiles[checkZ]?.[checkX];
-      if (!tile || tile.type !== 'wall') continue;
-
-      // Calculate wall position (center of wall tile edge)
-      const wallWorldX = checkX * TILE_SIZE + TILE_SIZE / 2;
-      const wallWorldZ = checkZ * TILE_SIZE + TILE_SIZE / 2;
-
-      // Check distance to wall
-      const dx = position.x - wallWorldX;
-      const dz = position.z - wallWorldZ;
-      const distToWall = Math.sqrt(dx * dx + dz * dz);
-
-      if (distToWall > wallCheckDistance * TILE_SIZE) continue;
-
-      // Spawn 2-4 splatters on this wall face
-      const splatterCount = 2 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < splatterCount; i++) {
-        // Position on the wall face
-        let splatterX = wallWorldX;
-        let splatterZ = wallWorldZ;
-
-        // Adjust to be on the correct face of the wall
-        if (dir.face === 'south') splatterZ += TILE_SIZE / 2 + 0.01;
-        if (dir.face === 'north') splatterZ -= TILE_SIZE / 2 - 0.01;
-        if (dir.face === 'west') splatterX += TILE_SIZE / 2 + 0.01;
-        if (dir.face === 'east') splatterX -= TILE_SIZE / 2 - 0.01;
-
-        // Random height on wall
-        const splatterY = 0.3 + Math.random() * 1.5;
-
-        this.renderer.spawnWallSplatter(
-          splatterX,
-          splatterZ,
-          splatterY,
-          dir.face,
-          0.6 + Math.random() * 0.6 * intensity
-        );
-      }
-    }
   }
 
   private spawnWeaponPickup(position: Vec3): void {
