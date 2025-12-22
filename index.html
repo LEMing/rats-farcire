@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <title>Rats Farcire - Top-Down Shooter</title>
     <style>
       * {
@@ -238,6 +241,62 @@
 
       .hidden {
         display: none !important;
+      }
+
+      /* Mobile-specific styles */
+      @media (hover: none) and (pointer: coarse) {
+        #crosshair {
+          display: none !important;
+        }
+
+        #hud {
+          top: env(safe-area-inset-top, 10px);
+          left: env(safe-area-inset-left, 10px);
+          font-size: 14px;
+        }
+
+        #health-bar {
+          width: 120px;
+          height: 16px;
+        }
+
+        #wave-info {
+          top: env(safe-area-inset-top, 10px);
+          right: 60px; /* Make room for weapon buttons */
+          font-size: 16px;
+        }
+
+        #network-info {
+          display: none;
+        }
+
+        #menu-content {
+          padding: 24px 32px;
+        }
+
+        #menu-screen h1 {
+          font-size: 32px;
+          letter-spacing: 3px;
+        }
+
+        #menu-subtitle {
+          font-size: 11px;
+          margin-bottom: 24px;
+        }
+
+        #menu-screen button {
+          padding: 14px 36px;
+          font-size: 14px;
+          min-width: 200px;
+        }
+      }
+
+      /* Prevent text selection and context menu on touch */
+      #game-container {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
       }
     </style>
   </head>

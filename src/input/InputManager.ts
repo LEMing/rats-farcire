@@ -1,8 +1,9 @@
 import type { InputState } from '@shared/types';
 import { Settings } from '../settings/Settings';
+import { TouchInputManager } from './TouchInputManager';
 
 // ============================================================================
-// Input Manager - WASD + Mouse (layout-independent using key codes)
+// Input Manager - WASD + Mouse + Touch (layout-independent using key codes)
 // ============================================================================
 
 export class InputManager {
@@ -12,9 +13,19 @@ export class InputManager {
   private mouseDown = false;
   private sequence = 0;
   private settings: Settings;
+  private container: HTMLElement;
+
+  // Touch/mobile support
+  private touchInput: TouchInputManager | null = null;
+  private isTouchDevice: boolean;
+  private useTouchControls: boolean = false;
 
   constructor(container: HTMLElement) {
+    this.container = container;
     this.settings = Settings.getInstance();
+
+    // Detect touch device
+    this.isTouchDevice = this.detectTouchDevice();
     // Keyboard events - use code for layout independence
     window.addEventListener('keydown', this.onKeyDown.bind(this));
     window.addEventListener('keyup', this.onKeyUp.bind(this));
@@ -33,6 +44,55 @@ export class InputManager {
         e.preventDefault();
       }
     });
+
+    // Initialize touch controls if on touch device
+    if (this.isTouchDevice) {
+      this.initTouchControls();
+    }
+  }
+
+  private detectTouchDevice(): boolean {
+    return (
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0 ||
+      // @ts-expect-error - msMaxTouchPoints is IE/Edge specific
+      navigator.msMaxTouchPoints > 0 ||
+      // Check for mobile user agent as fallback
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    );
+  }
+
+  private initTouchControls(): void {
+    this.touchInput = new TouchInputManager(this.container);
+    this.useTouchControls = true;
+    this.touchInput.show();
+    console.log('[InputManager] Touch controls initialized');
+  }
+
+  enableTouchControls(): void {
+    if (!this.touchInput) {
+      this.initTouchControls();
+    } else {
+      this.useTouchControls = true;
+      this.touchInput.show();
+    }
+  }
+
+  disableTouchControls(): void {
+    this.useTouchControls = false;
+    this.touchInput?.hide();
+  }
+
+  isTouchEnabled(): boolean {
+    return this.useTouchControls;
+  }
+
+  isTouchAvailable(): boolean {
+    return this.isTouchDevice;
+  }
+
+  updateWeaponSlot(slot: number): void {
+    this.touchInput?.updateWeaponSlot(slot);
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -62,6 +122,11 @@ export class InputManager {
   }
 
   getState(): InputState {
+    // Use touch input if active
+    if (this.useTouchControls && this.touchInput) {
+      return this.touchInput.getState();
+    }
+
     // Calculate aim direction from screen center to mouse
     // In isometric view, we need to convert screen coordinates to world direction
     const centerX = window.innerWidth / 2;
