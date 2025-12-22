@@ -131,6 +131,16 @@ export const PLAYER_SOUNDS: Record<string, SoundConfig> = {
     volume: 0.8,
     positional: false,
   },
+  last_stand_start: {
+    path: 'sounds/player/last_stand_start.mp3',
+    volume: 1.0,
+    positional: false,
+  },
+  last_stand_success: {
+    path: 'sounds/player/last_stand_success.mp3',
+    volume: 1.0,
+    positional: false,
+  },
 };
 
 export const OBJECTIVE_SOUNDS: Record<string, SoundConfig> = {

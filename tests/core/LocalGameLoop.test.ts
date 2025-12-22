@@ -80,6 +80,7 @@ const createMockMapRenderer = () => ({
   removeExplosiveBarrel: vi.fn(),
   clearExplosiveBarrels: vi.fn(),
   getExplosiveBarrelCount: vi.fn().mockReturnValue(0),
+  setPropManager: vi.fn(),
 });
 
 const createMockRenderer = () => ({
@@ -107,6 +108,7 @@ const createDefaultInput = (): InputState => ({
   shooting: false,
   interact: false,
   dash: false,
+  sprint: false,
   weaponSlot: null,
   thermobaric: false,
   escapePressed: false,

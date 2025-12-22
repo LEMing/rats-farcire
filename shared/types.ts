@@ -248,6 +248,7 @@ export interface InputState {
   shooting: boolean;
   interact: boolean;
   dash: boolean;
+  sprint: boolean; // Shift key for sprint/acceleration
   weaponSlot: number | null; // 1-5 for weapon switching
   thermobaric: boolean; // F key for thermobaric charge
   escapePressed: boolean; // ESC key for pause menu
@@ -262,7 +263,7 @@ export type ClientMessage =
   | { type: 'join'; payload: { name: string } }
   | { type: 'input'; payload: InputState }
   | { type: 'ping'; payload: { timestamp: number } }
-  | { type: 'leave'; payload: {} };
+  | { type: 'leave'; payload: Record<string, never> };
 
 export type ServerMessage =
   | { type: 'joined'; payload: { playerId: string; mapData: MapData } }

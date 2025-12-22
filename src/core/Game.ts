@@ -71,6 +71,7 @@ export class Game {
     this.renderer = deps.renderer ?? new Renderer(container);
     this.input = deps.input ?? new InputManager(container);
     this.ui = deps.ui ?? new UIManager();
+    // Note: EntityManager requires concrete Renderer for Three.js scene access
     this.entities = new EntityManager(this.renderer as Renderer);
 
     // Apply configuration with defaults
@@ -81,7 +82,7 @@ export class Game {
     container.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 1 : -1; // Positive = zoom out, negative = zoom in
-      (this.renderer as Renderer).adjustZoom(delta);
+      this.renderer.adjustZoom(delta);
     }, { passive: false });
 
     // Initial resize
@@ -92,9 +93,8 @@ export class Game {
     // Initialize WebGPU renderer
     await this.renderer.init();
 
-    // Initialize audio system with camera for spatial audio
-    const concreteRenderer = this.renderer as Renderer;
-    const audioManager = createAudioManager(concreteRenderer.camera);
+    // Note: AudioManager requires Three.js camera for spatial audio positioning
+    const audioManager = createAudioManager((this.renderer as Renderer).camera);
     await audioManager.init(preloadedBuffers);
 
     // Initialize pause menu
@@ -114,8 +114,7 @@ export class Game {
     const generator = new MapGenerator(MAP_WIDTH, MAP_HEIGHT, Date.now());
     this.mapData = generator.generate();
 
-    // Create local game loop with renderer for effects
-    // Note: LocalGameLoop still requires concrete types until fully refactored
+    // Note: LocalGameLoop requires concrete types for physics and Three.js integration
     this.localLoop = new LocalGameLoop(
       this.mapData,
       this.entities,
@@ -124,7 +123,7 @@ export class Game {
     );
 
     // Initialize minimap with map data
-    (this.ui as UIManager).initMinimap(this.mapData);
+    this.ui.initMinimap(this.mapData);
 
     // Set up hitstop callback
     this.localLoop.onHitstop = () => {

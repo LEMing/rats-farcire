@@ -97,10 +97,11 @@ export class NetworkClient {
           this.onStateUpdate?.(message.payload);
           break;
 
-        case 'pong':
+        case 'pong': {
           const ping = Date.now() - this.lastPingTime;
           this.onPong?.(ping);
           break;
+        }
 
         case 'playerJoined':
           this.onPlayerJoined?.(message.payload.playerId, message.payload.name);

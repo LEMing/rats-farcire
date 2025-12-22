@@ -11,7 +11,10 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/ server/ shared/ --ext .ts,.tsx",
+    "lint:fix": "eslint src/ server/ shared/ --ext .ts,.tsx --fix",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
@@ -24,8 +27,11 @@
     "@types/three": "^0.182.0",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
     "@vitest/coverage-v8": "^4.0.16",
     "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
     "jsdom": "^27.3.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",

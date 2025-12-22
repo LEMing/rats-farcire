@@ -134,6 +134,7 @@ export class InputManager {
       shooting: this.mouseDown,
       interact: this.keys.has('KeyE'),
       dash: this.keys.has('Space'),
+      sprint: this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'),
       weaponSlot,
       thermobaric: this.keys.has('KeyF'),
       escapePressed: this.keys.has('Escape'),

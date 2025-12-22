@@ -16,6 +16,9 @@ export interface IRenderer {
   updateCamera(position: Vec3, aimDir: Vec2): void;
   worldToScreen(position: Vec3): Vec2;
 
+  // Camera controls
+  adjustZoom(delta: number): void;
+
   // Visual effects
   addScreenShake(intensity: number): void;
   spawnBloodBurst(position: Vec3, enemyType: EnemyType, count?: number): void;
@@ -65,6 +68,7 @@ export interface IUIManager {
   spawnHealNumber(x: number, y: number, amount: number): void;
   triggerKillFlash(): void;
   triggerDamageVignette(intensity: number): void;
+  initMinimap(mapData: MapData): void;
 }
 
 /**

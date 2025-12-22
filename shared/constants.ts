@@ -302,10 +302,13 @@ export const MAX_PLAYERS_PER_ROOM = 4;
 export const SNAPSHOT_BUFFER_SIZE = 32;
 
 // Dash ability
-export const DASH_SPEED = 32;
-export const DASH_DURATION = 160; // ms
+export const DASH_SPEED = 64;        // 2x faster
+export const DASH_DURATION = 400;    // 2.5x longer (total: 5x distance)
 export const DASH_COOLDOWN = 800; // ms
 export const DASH_IFRAMES = true;
+
+// Sprint (Shift key acceleration)
+export const SPRINT_MULTIPLIER = 1.8; // 80% faster when sprinting
 
 // Combo system
 export const COMBO_TIMEOUT = 2000; // ms to maintain combo

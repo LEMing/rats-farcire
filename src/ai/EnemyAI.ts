@@ -76,6 +76,7 @@ class MinHeap {
 
   private bubbleDown(idx: number): void {
     const length = this.heap.length;
+    // eslint-disable-next-line no-constant-condition -- Heap algorithm
     while (true) {
       const leftIdx = 2 * idx + 1;
       const rightIdx = 2 * idx + 2;
@@ -286,6 +287,7 @@ export class EnemyAI {
     const sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
 
+    // eslint-disable-next-line no-constant-condition -- Bresenham's line algorithm
     while (true) {
       // Check if current tile is walkable
       if (

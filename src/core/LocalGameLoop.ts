@@ -179,7 +179,7 @@ export class LocalGameLoop {
       onLastStandStart: () => {
         this.renderer.addScreenShake(1.0);
         this.ui.showLastStand(true);
-        // TODO: Add playLastStandStart to AudioManager
+        getAudioManager()?.playLastStandStart();
       },
       onLastStandKill: (kills, required) => {
         this.ui.updateLastStandKills(kills, required);
@@ -188,7 +188,7 @@ export class LocalGameLoop {
         this.ui.showLastStand(false);
         this.ui.showNotification('SURVIVAL PROTOCOL ENGAGED', 0xffd700);
         this.renderer.addScreenShake(0.8);
-        // TODO: Add playLastStandSuccess to AudioManager
+        getAudioManager()?.playLastStandSuccess();
       },
       onLastStandFail: () => {
         this.ui.showLastStand(false);
@@ -1193,7 +1193,7 @@ export class LocalGameLoop {
         this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 1.5);
         break;
 
-      case 'rifle':
+      case 'rifle': {
         // PRECISION - clean kill, focused blood spray, single large decal
         this.renderer.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles);
         // Directional blood spray (behind enemy)
@@ -1210,6 +1210,7 @@ export class LocalGameLoop {
         }
         this.renderer.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize);
         break;
+      }
 
       case 'machinegun':
         // BRUTAL - multiple small blood bursts (like riddled with bullets)

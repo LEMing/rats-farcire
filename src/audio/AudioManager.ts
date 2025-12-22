@@ -304,6 +304,14 @@ export class AudioManager {
     this.play(`pickup_${pickupType}`);
   }
 
+  playLastStandStart(): void {
+    this.play('last_stand_start');
+  }
+
+  playLastStandSuccess(): void {
+    this.play('last_stand_success');
+  }
+
   // === Volume Control ===
 
   private calculateVolume(category: SoundCategory, baseVolume: number): number {

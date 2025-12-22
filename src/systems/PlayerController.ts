@@ -14,6 +14,7 @@ import {
   DASH_DURATION,
   DASH_COOLDOWN,
   CELL_CARRY_SPEED_MULTIPLIER,
+  SPRINT_MULTIPLIER,
   WALL_COLLISION_BUFFER,
 } from '@shared/constants';
 import { isWalkableWithRadius, normalize } from '@shared/utils';
@@ -208,8 +209,10 @@ export class PlayerController {
    */
   private calculateNormalVelocity(player: PlayerState, input: InputState): Vec2 {
     const moveDir = normalize({ x: input.moveX, y: input.moveY });
-    const speedMultiplier = player.carryingCellId ? CELL_CARRY_SPEED_MULTIPLIER : 1;
-    const targetSpeed = this.config.playerSpeed * speedMultiplier;
+    // Sprint boost, but not when carrying a cell
+    const sprintMultiplier = input.sprint && !player.carryingCellId ? SPRINT_MULTIPLIER : 1;
+    const carryMultiplier = player.carryingCellId ? CELL_CARRY_SPEED_MULTIPLIER : 1;
+    const targetSpeed = this.config.playerSpeed * sprintMultiplier * carryMultiplier;
 
     // Target velocity based on input
     const targetVelX = moveDir.x * targetSpeed;
