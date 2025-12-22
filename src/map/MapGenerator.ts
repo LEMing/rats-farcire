@@ -140,7 +140,7 @@ export class MapGenerator {
   private assignThemedRoomType(room: Room): RoomType {
     const isLarge = room.width >= 6 && room.height >= 6;
     const isMedium = room.width >= 4 && room.height >= 4;
-    const rand = Math.random();
+    const rand = this.rng.next();
 
     if (isLarge) {
       // Large rooms: 40% grinder, 60% storage

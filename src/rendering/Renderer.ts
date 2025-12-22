@@ -27,6 +27,7 @@ import { ZoneLighting } from './ZoneLighting';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { ThermobaricEffect } from './ThermobaricEffect';
 import { DashEffect } from './DashEffect';
+import { CameraController } from './CameraController';
 import { debug } from '../utils/debug';
 
 // ============================================================================
@@ -40,31 +41,12 @@ export class Renderer {
   private postProcessing!: THREE.PostProcessing;
   private usePostProcessing = true;
 
-  // Camera settings for isometric view
-  private readonly CAMERA_ZOOM = 14; // Closer view for shooter feel
-  private readonly CAMERA_ANGLE = Math.PI / 4; // 45 degrees
-  private readonly CAMERA_PITCH = Math.atan(1 / Math.sqrt(2)); // ~35.264 degrees (true isometric)
-  private readonly CAMERA_LEAD = 3; // How far camera looks ahead toward aim
-  private readonly CAMERA_SMOOTHING = 0.12; // Lower = smoother/slower follow
-
-  // Zoom state (1.0 = default, 0.5 = zoomed in 50%, 1.5 = zoomed out 50%)
-  private zoomLevel = 1.0;
-  private readonly ZOOM_MIN = 0.5;
-  private readonly ZOOM_MAX = 1.5;
-  private readonly ZOOM_SPEED = 0.1;
-
-  // Camera follow state
-  private cameraTarget = new THREE.Vector3();
-  private currentCameraLookAt = new THREE.Vector3();
+  // Camera controller (handles positioning, zoom, shake, screen projection)
+  private cameraController!: CameraController;
 
   // Geometry caches
   private geometries: Map<string, THREE.BufferGeometry> = new Map();
   private materials: Map<string, THREE.Material> = new Map();
-
-  // Screen shake system
-  private shakeIntensity = 0;
-  private shakeDecay = 0.9;
-  private shakeOffset = new THREE.Vector3();
 
   // Extracted particle system
   private particleSystem!: ParticleSystem;
@@ -115,7 +97,7 @@ export class Renderer {
 
     // Create orthographic camera for isometric view
     const aspect = window.innerWidth / window.innerHeight;
-    const viewSize = this.CAMERA_ZOOM;
+    const viewSize = 14; // Default camera zoom
     this.camera = new THREE.OrthographicCamera(
       -viewSize * aspect,
       viewSize * aspect,
@@ -125,8 +107,8 @@ export class Renderer {
       1000
     );
 
-    // Position camera for isometric view
-    this.setupIsometricCamera();
+    // Initialize camera controller (handles positioning, zoom, shake)
+    this.cameraController = new CameraController(this.camera);
 
     // Setup lighting
     this.setupLighting();
@@ -316,17 +298,6 @@ export class Renderer {
     return mix(color, desaturated, this.lowHealthUniform);
   }
 
-  private setupIsometricCamera(): void {
-    // True isometric positioning
-    const distance = 50;
-    this.camera.position.set(
-      distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH),
-      distance * Math.sin(this.CAMERA_PITCH),
-      distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH)
-    );
-    this.camera.lookAt(0, 0, 0);
-  }
-
   private setupLighting(): void {
     // Ambient light
     const ambient = new THREE.AmbientLight(0x606080, 0.8);
@@ -490,55 +461,11 @@ export class Renderer {
   }
 
   updateCamera(targetPosition: Vec3, aimDirection?: { x: number; y: number }): void {
-    // Update screen shake
-    this.updateShake();
-
-    // Calculate look-ahead offset based on aim direction
-    let leadX = 0;
-    let leadZ = 0;
-    if (aimDirection) {
-      leadX = aimDirection.x * this.CAMERA_LEAD;
-      leadZ = aimDirection.y * this.CAMERA_LEAD;
-    }
-
-    // Target position with aim lead
-    const targetX = targetPosition.x + leadX;
-    const targetZ = targetPosition.z + leadZ;
-
-    // Smooth follow - lerp toward target
-    this.cameraTarget.x += (targetX - this.cameraTarget.x) * this.CAMERA_SMOOTHING;
-    this.cameraTarget.y = targetPosition.y;
-    this.cameraTarget.z += (targetZ - this.cameraTarget.z) * this.CAMERA_SMOOTHING;
-
-    // Position camera at isometric offset from smoothed target
-    const distance = 50;
-    this.camera.position.set(
-      this.cameraTarget.x + distance * Math.cos(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.x,
-      this.cameraTarget.y + distance * Math.sin(this.CAMERA_PITCH) + this.shakeOffset.y,
-      this.cameraTarget.z + distance * Math.sin(this.CAMERA_ANGLE) * Math.cos(this.CAMERA_PITCH) + this.shakeOffset.z
-    );
-
-    // Smooth look-at as well
-    this.currentCameraLookAt.x += (this.cameraTarget.x - this.currentCameraLookAt.x) * this.CAMERA_SMOOTHING;
-    this.currentCameraLookAt.y = this.cameraTarget.y;
-    this.currentCameraLookAt.z += (this.cameraTarget.z - this.currentCameraLookAt.z) * this.CAMERA_SMOOTHING;
-
-    this.camera.lookAt(
-      this.currentCameraLookAt.x + this.shakeOffset.x * 0.5,
-      this.currentCameraLookAt.y,
-      this.currentCameraLookAt.z + this.shakeOffset.z * 0.5
-    );
+    this.cameraController.updateCamera(targetPosition, aimDirection);
   }
 
   resize(width: number, height: number): void {
-    const aspect = width / height;
-    const viewSize = this.CAMERA_ZOOM * this.zoomLevel;
-
-    this.camera.left = -viewSize * aspect;
-    this.camera.right = viewSize * aspect;
-    this.camera.top = viewSize;
-    this.camera.bottom = -viewSize;
-    this.camera.updateProjectionMatrix();
+    this.cameraController.resize(width, height);
 
     if (this.renderer) {
       this.renderer.setSize(width, height);
@@ -549,19 +476,14 @@ export class Renderer {
    * Adjust zoom level by delta (positive = zoom out, negative = zoom in)
    */
   adjustZoom(delta: number): void {
-    this.zoomLevel = Math.max(
-      this.ZOOM_MIN,
-      Math.min(this.ZOOM_MAX, this.zoomLevel + delta * this.ZOOM_SPEED)
-    );
-    // Apply zoom by resizing camera
-    this.resize(window.innerWidth, window.innerHeight);
+    this.cameraController.adjustZoom(delta);
   }
 
   /**
    * Get current zoom level
    */
   getZoomLevel(): number {
-    return this.zoomLevel;
+    return this.cameraController.getZoomLevel();
   }
 
   render(): void {
@@ -617,35 +539,15 @@ export class Renderer {
 
   // Convert world position to screen coordinates
   worldToScreen(worldPos: Vec3): { x: number; y: number } {
-    const vec = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z);
-    vec.project(this.camera);
-
-    return {
-      x: (vec.x * 0.5 + 0.5) * window.innerWidth,
-      y: (-vec.y * 0.5 + 0.5) * window.innerHeight,
-    };
+    return this.cameraController.worldToScreen(worldPos);
   }
 
   // ============================================================================
-  // Screen Shake System
+  // Screen Shake System (delegated to CameraController)
   // ============================================================================
 
   addScreenShake(intensity: number): void {
-    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
-  }
-
-  private updateShake(): void {
-    if (this.shakeIntensity > 0.01) {
-      this.shakeOffset.set(
-        (Math.random() - 0.5) * this.shakeIntensity * 2,
-        (Math.random() - 0.5) * this.shakeIntensity,
-        (Math.random() - 0.5) * this.shakeIntensity * 2
-      );
-      this.shakeIntensity *= this.shakeDecay;
-    } else {
-      this.shakeOffset.set(0, 0, 0);
-      this.shakeIntensity = 0;
-    }
+    this.cameraController.addScreenShake(intensity);
   }
 
   // ============================================================================
