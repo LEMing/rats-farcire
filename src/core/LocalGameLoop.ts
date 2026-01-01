@@ -230,7 +230,8 @@ export class LocalGameLoop {
         this.eventBus.emit('bloodBurst', { position: { ...position }, enemyType, intensity: count });
       },
       spawnBloodDecal: (x, z, size) => this.renderer.spawnBloodDecal(x, z, size),
-      spawnGibs: (position, count) => this.renderer.spawnGibs(position, count),
+      spawnGibs: (position, count, isExplosive) => this.renderer.spawnGibs(position, count, isExplosive),
+      spawnBloodSplatter: (x, z, size) => this.renderer.spawnBloodSplatter(x, z, size),
       spawnWallSplatter: (x, z, y, face, size) => this.renderer.spawnWallSplatter(x, z, y, face, size),
       triggerKillFlash: () => this.ui.triggerKillFlash(),
       registerKill: () => this.ui.registerKill(),

@@ -12,17 +12,17 @@ interface QueuedNotification {
   duration: number;
 }
 
-// Kill rating thresholds and messages
+// Kill rating thresholds and messages with slow-mo settings
 const KILL_RATINGS = [
-  { kills: 2, text: 'DOUBLE KILL', color: '#ffff00' },
-  { kills: 3, text: 'TRIPLE KILL', color: '#ff8800' },
-  { kills: 4, text: 'MULTI KILL', color: '#ff4400' },
-  { kills: 5, text: 'MEGA KILL', color: '#ff0044' },
-  { kills: 6, text: 'ULTRA KILL', color: '#ff00ff' },
-  { kills: 7, text: 'MONSTER KILL', color: '#aa00ff' },
-  { kills: 8, text: 'MASSACRE!', color: '#8800ff' },
-  { kills: 10, text: 'BRUTAL!', color: '#ff0000' },
-  { kills: 15, text: 'GODLIKE!', color: '#ffffff' },
+  { kills: 2, text: 'DOUBLE KILL', color: '#ffff00', slowMo: { scale: 0.7, duration: 150 } },
+  { kills: 3, text: 'TRIPLE KILL', color: '#ff8800', slowMo: { scale: 0.6, duration: 200 } },
+  { kills: 4, text: 'MULTI KILL', color: '#ff4400', slowMo: { scale: 0.5, duration: 250 } },
+  { kills: 5, text: 'MEGA KILL', color: '#ff0044', slowMo: { scale: 0.45, duration: 300 } },
+  { kills: 6, text: 'ULTRA KILL', color: '#ff00ff', slowMo: { scale: 0.4, duration: 350 } },
+  { kills: 7, text: 'MONSTER KILL', color: '#aa00ff', slowMo: { scale: 0.35, duration: 400 } },
+  { kills: 8, text: 'MASSACRE!', color: '#8800ff', slowMo: { scale: 0.3, duration: 500 } },
+  { kills: 10, text: 'BRUTAL!', color: '#ff0000', slowMo: { scale: 0.25, duration: 600 } },
+  { kills: 15, text: 'GODLIKE!', color: '#ffffff', slowMo: { scale: 0.2, duration: 800 } },
 ];
 
 export class UIEffects {
@@ -37,6 +37,9 @@ export class UIEffects {
   private rapidKillCount = 0;
   private rapidKillTimer = 0;
   private readonly RAPID_KILL_WINDOW = 1500; // ms between kills to count as rapid
+
+  // Slow-mo callback for multi-kills
+  public onSlowMo: ((scale: number, duration: number) => void) | null = null;
 
   // Notification queue system
   private notificationQueue: QueuedNotification[] = [];
@@ -230,6 +233,11 @@ export class UIEffects {
 
     if (rating) {
       this.showKillRating(rating.text, rating.color);
+
+      // Trigger slow-mo effect for dramatic multi-kill moments
+      if (this.onSlowMo) {
+        this.onSlowMo(rating.slowMo.scale, rating.slowMo.duration);
+      }
     }
   }
 

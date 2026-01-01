@@ -13,7 +13,8 @@ export interface DeathEffectsCallbacks {
   // Blood effects
   spawnBloodBurst: (position: Vec3, enemyType: EnemyType, count: number) => void;
   spawnBloodDecal: (x: number, z: number, size: number) => void;
-  spawnGibs: (position: Vec3, count: number) => void;
+  spawnGibs: (position: Vec3, count: number, isExplosive?: boolean) => void;
+  spawnBloodSplatter: (x: number, z: number, size: number) => void; // Multi-circle splatter
   spawnWallSplatter: (x: number, z: number, y: number, face: 'north' | 'south' | 'east' | 'west', size: number) => void;
 
   // UI feedback
@@ -108,18 +109,19 @@ export class DeathEffectsSystem {
       case 'shotgun':
         // EXPLOSIVE - massive blood burst, many gibs, wide splatter
         this.callbacks.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 2);
-        this.callbacks.spawnGibs(enemy.position, isTank ? 10 : 6);
-        // Spread decals in a wide cone
-        for (let i = 0; i < 5; i++) {
+        this.callbacks.spawnGibs(enemy.position, isTank ? 10 : 6, true); // Explosive gibs
+        // Large central blood splatter blob
+        this.callbacks.spawnBloodSplatter(enemy.position.x, enemy.position.z, baseDecalSize * 1.8);
+        // Spread additional splatter in a wide cone
+        for (let i = 0; i < 3; i++) {
           const angle = Math.random() * Math.PI * 2;
-          const dist = 0.5 + Math.random() * 2;
-          this.callbacks.spawnBloodDecal(
+          const dist = 0.8 + Math.random() * 1.5;
+          this.callbacks.spawnBloodSplatter(
             enemy.position.x + Math.cos(angle) * dist,
             enemy.position.z + Math.sin(angle) * dist,
-            0.6 + Math.random() * 0.8
+            0.5 + Math.random() * 0.6
           );
         }
-        this.callbacks.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 1.5);
         break;
 
       case 'rifle': {
@@ -165,17 +167,17 @@ export class DeathEffectsSystem {
       case 'rocket':
         // VAPORIZED - huge explosion, massive blood cloud, body chunks everywhere
         this.callbacks.spawnBloodBurst(enemy.position, enemy.enemyType, baseParticles * 3);
-        this.callbacks.spawnGibs(enemy.position, isTank ? 15 : 8);
-        // Large central crater of blood
-        this.callbacks.spawnBloodDecal(enemy.position.x, enemy.position.z, baseDecalSize * 2);
-        // Ring of smaller splats
-        for (let i = 0; i < 8; i++) {
-          const angle = (i / 8) * Math.PI * 2;
-          const dist = 1.5 + Math.random();
-          this.callbacks.spawnBloodDecal(
+        this.callbacks.spawnGibs(enemy.position, isTank ? 15 : 10, true); // Maximum explosive gibs with entrails
+        // Large central crater of blood - massive splatter
+        this.callbacks.spawnBloodSplatter(enemy.position.x, enemy.position.z, baseDecalSize * 2.5);
+        // Ring of splatter blobs around the explosion
+        for (let i = 0; i < 6; i++) {
+          const angle = (i / 6) * Math.PI * 2 + Math.random() * 0.3;
+          const dist = 1.2 + Math.random() * 1.5;
+          this.callbacks.spawnBloodSplatter(
             enemy.position.x + Math.cos(angle) * dist,
             enemy.position.z + Math.sin(angle) * dist,
-            0.4 + Math.random() * 0.3
+            0.6 + Math.random() * 0.5
           );
         }
         break;

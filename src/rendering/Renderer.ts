@@ -704,8 +704,8 @@ export class Renderer {
     this.particleSystem.spawnBloodBurst(position, enemyType, count);
   }
 
-  spawnGibs(position: Vec3, count: number = 6): void {
-    this.particleSystem.spawnGibs(position, count);
+  spawnGibs(position: Vec3, count: number = 6, isExplosive: boolean = false): void {
+    this.particleSystem.spawnGibs(position, count, isExplosive);
   }
 
   markEntityBloody(entityId: string, x: number, z: number): void {
@@ -758,5 +758,9 @@ export class Renderer {
 
   spawnBloodDecal(x: number, z: number, size: number = 1): void {
     this.particleSystem.spawnBloodDecal(x, z, size);
+  }
+
+  spawnBloodSplatter(x: number, z: number, size: number = 1): void {
+    this.particleSystem.spawnBloodSplatter(x, z, size);
   }
 }

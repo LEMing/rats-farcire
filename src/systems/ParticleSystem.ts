@@ -17,6 +17,9 @@ interface ParticleData {
   baseScale: number;
 }
 
+// Gib types for varied body part visuals
+type GibType = 'head' | 'limb' | 'torso' | 'tail' | 'entrails';
+
 interface GibData {
   index: number;
   position: THREE.Vector3;
@@ -26,6 +29,7 @@ interface GibData {
   lifetime: number;
   maxLifetime: number;
   scale: number;
+  gibType: GibType;
 }
 
 // Blood trail tracking for entities
@@ -41,7 +45,6 @@ export type WallFace = 'north' | 'south' | 'east' | 'west';
 export class ParticleSystem {
   private readonly MAX_PARTICLES = 200;
   private readonly MAX_BLOOD_DECALS = 100;
-  private readonly MAX_GIBS = 50;
   private readonly MAX_FOOTPRINTS = 150;
   private readonly MAX_WALL_SPLATTERS = 80;
 
@@ -57,10 +60,11 @@ export class ParticleSystem {
   private nextDecalIndex = 0;
   private decalCount = 0;
 
-  // Gibs system - chunks of enemy bodies
+  // Gibs system - chunks of enemy bodies (multiple gib types)
   private gibs: GibData[] = [];
-  private gibInstances!: THREE.InstancedMesh;
-  private freeGibIndices: number[] = [];
+  private gibInstancesByType!: Map<GibType, THREE.InstancedMesh>;
+  private freeGibIndicesByType!: Map<GibType, number[]>;
+  private readonly GIBS_PER_TYPE = 15; // Max gibs per type
 
   // Blood footprint system
   private footprintInstances!: THREE.InstancedMesh;
@@ -150,28 +154,73 @@ export class ParticleSystem {
   }
 
   private initGibSystem(): void {
-    // Irregular chunk geometry for gibs
-    const geometry = new THREE.BoxGeometry(0.15, 0.1, 0.12);
+    this.gibInstancesByType = new Map();
+    this.freeGibIndicesByType = new Map();
 
-    // Dark red/meat colored material
-    const material = new THREE.MeshLambertMaterial({
-      color: 0x660000,
-    });
+    // Create different geometries for each gib type
+    const gibGeometries: Record<GibType, THREE.BufferGeometry> = {
+      // Head: Sphere - recognizable rat head chunk
+      head: new THREE.SphereGeometry(0.12, 6, 6),
 
-    // Create instanced mesh for gibs
-    this.gibInstances = new THREE.InstancedMesh(geometry, material, this.MAX_GIBS);
-    this.gibInstances.frustumCulled = false;
-    this.gibInstances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // Limb: Elongated capsule shape (cylinder + hemispheres approximated)
+      limb: this.createLimbGeometry(),
 
-    // Initialize all as hidden
+      // Torso: Irregular box chunk
+      torso: new THREE.BoxGeometry(0.18, 0.12, 0.14),
+
+      // Tail: Thin cylinder segment
+      tail: new THREE.CylinderGeometry(0.03, 0.02, 0.25, 6),
+
+      // Entrails: Torus (intestine-like)
+      entrails: new THREE.TorusGeometry(0.08, 0.025, 6, 8),
+    };
+
+    // Different meat colors for variety
+    const gibColors: Record<GibType, number> = {
+      head: 0x882222,      // Darker red
+      limb: 0x771111,      // Deep crimson
+      torso: 0x660000,     // Dark meat
+      tail: 0x553333,      // Grayish red
+      entrails: 0x992244,  // Pinkish (organs)
+    };
+
     const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = 0; i < this.MAX_GIBS; i++) {
-      this.gibInstances.setMatrixAt(i, hiddenMatrix);
-      this.freeGibIndices.push(i);
-    }
 
-    this.gibInstances.instanceMatrix.needsUpdate = true;
-    this.scene.add(this.gibInstances);
+    // Create instanced mesh for each gib type
+    for (const gibType of Object.keys(gibGeometries) as GibType[]) {
+      const geometry = gibGeometries[gibType];
+      const material = new THREE.MeshLambertMaterial({
+        color: gibColors[gibType],
+      });
+
+      const instances = new THREE.InstancedMesh(geometry, material, this.GIBS_PER_TYPE);
+      instances.frustumCulled = false;
+      instances.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+      // Initialize all as hidden
+      const freeIndices: number[] = [];
+      for (let i = 0; i < this.GIBS_PER_TYPE; i++) {
+        instances.setMatrixAt(i, hiddenMatrix);
+        freeIndices.push(i);
+      }
+
+      instances.instanceMatrix.needsUpdate = true;
+      this.scene.add(instances);
+
+      this.gibInstancesByType.set(gibType, instances);
+      this.freeGibIndicesByType.set(gibType, freeIndices);
+    }
+  }
+
+  /**
+   * Create elongated limb geometry (capsule-like)
+   */
+  private createLimbGeometry(): THREE.BufferGeometry {
+    // Cylinder with rounded ends approximation
+    const cylinder = new THREE.CylinderGeometry(0.04, 0.035, 0.18, 6);
+    // Rotate to lay horizontally
+    cylinder.rotateZ(Math.PI / 2);
+    return cylinder;
   }
 
   private initFootprintSystem(): void {
@@ -330,45 +379,163 @@ export class ParticleSystem {
   }
 
   /**
-   * Spawn gibs (body chunks) - for high-impact kills like shotgun/rocket
+   * Spawn a blood splatter blob - multiple overlapping circles for organic shape
+   * Creates more visually interesting blood pools than single circles
    */
-  spawnGibs(position: Vec3, count: number = 6): void {
-    for (let i = 0; i < count; i++) {
-      if (this.freeGibIndices.length === 0) continue;
-      const index = this.freeGibIndices.pop()!;
+  spawnBloodSplatter(x: number, z: number, size: number = 1): void {
+    // Number of circles in the blob (3-5 based on size)
+    const circleCount = Math.floor(3 + size * 0.8);
 
-      // Random velocity outward and upward
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 4 + Math.random() * 6;
-      const upward = 3 + Math.random() * 5;
+    // Base parameters for the splatter
+    const baseSize = size * 0.6;
 
-      this.gibs.push({
-        index,
-        position: new THREE.Vector3(
-          position.x + (Math.random() - 0.5) * 0.3,
-          position.y + 0.3 + Math.random() * 0.2,
-          position.z + (Math.random() - 0.5) * 0.3
-        ),
-        velocity: new THREE.Vector3(
-          Math.cos(angle) * speed,
-          upward,
-          Math.sin(angle) * speed
-        ),
-        rotation: new THREE.Euler(
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2,
-          Math.random() * Math.PI * 2
-        ),
-        angularVelocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 15,
-          (Math.random() - 0.5) * 15,
-          (Math.random() - 0.5) * 15
-        ),
-        lifetime: 0,
-        maxLifetime: 1.5 + Math.random() * 0.5,
-        scale: 0.8 + Math.random() * 0.6,
-      });
+    for (let i = 0; i < circleCount; i++) {
+      // Each circle is offset from center to create organic blob shape
+      const angle = (i / circleCount) * Math.PI * 2 + Math.random() * 0.8;
+      const dist = Math.random() * size * 0.4;
+
+      // Vary the size of each circle (first one is largest - center)
+      const circleSize = i === 0
+        ? baseSize * (1.0 + Math.random() * 0.3)
+        : baseSize * (0.5 + Math.random() * 0.5);
+
+      const offsetX = i === 0 ? 0 : Math.cos(angle) * dist;
+      const offsetZ = i === 0 ? 0 : Math.sin(angle) * dist;
+
+      // Use circular buffer
+      const index = this.nextDecalIndex;
+      this.nextDecalIndex = (this.nextDecalIndex + 1) % this.MAX_BLOOD_DECALS;
+      this.decalCount = Math.min(this.decalCount + 1, this.MAX_BLOOD_DECALS);
+
+      // Slight height variation to prevent z-fighting
+      const yOffset = 0.02 + i * 0.002;
+
+      // Set position and scale with organic variation
+      const scale = circleSize * (0.8 + Math.random() * 0.4);
+      this.dummyMatrix.makeScale(scale, scale, scale * (0.8 + Math.random() * 0.4)); // Slightly irregular
+      this.dummyMatrix.setPosition(
+        x + offsetX + (Math.random() - 0.5) * 0.2,
+        yOffset,
+        z + offsetZ + (Math.random() - 0.5) * 0.2
+      );
+      this.bloodDecalInstances.setMatrixAt(index, this.dummyMatrix);
+
+      // Color variation within the splatter (darker towards center)
+      const colorBase = i === 0 ? 0.35 : 0.25;
+      const colorVariation = colorBase + Math.random() * 0.15;
+      this.dummyColor.setRGB(colorVariation, Math.random() * 0.03, Math.random() * 0.02);
+      this.bloodDecalInstances.setColorAt(index, this.dummyColor);
     }
+
+    // Mark buffers for update
+    this.bloodDecalInstances.instanceMatrix.needsUpdate = true;
+    if (this.bloodDecalInstances.instanceColor) {
+      this.bloodDecalInstances.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Spawn gibs (body chunks) - for high-impact kills like shotgun/rocket
+   * @param position World position to spawn gibs
+   * @param count Number of gibs to spawn
+   * @param isExplosive If true, spawn more entrails (rockets, explosions)
+   */
+  spawnGibs(position: Vec3, count: number = 6, isExplosive: boolean = false): void {
+    // Determine gib distribution based on count and explosion type
+    const gibDistribution = this.getGibDistribution(count, isExplosive);
+
+    for (const gibType of Object.keys(gibDistribution) as GibType[]) {
+      const gibCount = gibDistribution[gibType];
+      const freeIndices = this.freeGibIndicesByType.get(gibType);
+      const instances = this.gibInstancesByType.get(gibType);
+
+      if (!freeIndices || !instances) continue;
+
+      for (let i = 0; i < gibCount; i++) {
+        if (freeIndices.length === 0) continue;
+        const index = freeIndices.pop()!;
+
+        // Random velocity outward and upward
+        const angle = Math.random() * Math.PI * 2;
+        // Different speeds based on gib type
+        const baseSpeed = gibType === 'entrails' ? 3 : (gibType === 'head' ? 5 : 4);
+        const speed = baseSpeed + Math.random() * 6;
+        const upward = 3 + Math.random() * 5;
+
+        // Heavier gibs (head, torso) have more angular momentum
+        const angularMult = gibType === 'head' || gibType === 'torso' ? 1.2 : 1.0;
+
+        this.gibs.push({
+          index,
+          position: new THREE.Vector3(
+            position.x + (Math.random() - 0.5) * 0.3,
+            position.y + 0.3 + Math.random() * 0.2,
+            position.z + (Math.random() - 0.5) * 0.3
+          ),
+          velocity: new THREE.Vector3(
+            Math.cos(angle) * speed,
+            upward,
+            Math.sin(angle) * speed
+          ),
+          rotation: new THREE.Euler(
+            Math.random() * Math.PI * 2,
+            Math.random() * Math.PI * 2,
+            Math.random() * Math.PI * 2
+          ),
+          angularVelocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 15 * angularMult,
+            (Math.random() - 0.5) * 15 * angularMult,
+            (Math.random() - 0.5) * 15 * angularMult
+          ),
+          lifetime: 0,
+          maxLifetime: 1.5 + Math.random() * 0.5,
+          scale: 0.8 + Math.random() * 0.6,
+          gibType,
+        });
+      }
+    }
+  }
+
+  /**
+   * Get distribution of gib types based on count and explosion flag
+   */
+  private getGibDistribution(count: number, isExplosive: boolean): Record<GibType, number> {
+    // Base distribution: 1 head, mostly limbs, some torso chunks
+    const distribution: Record<GibType, number> = {
+      head: 0,
+      limb: 0,
+      torso: 0,
+      tail: 0,
+      entrails: 0,
+    };
+
+    if (count <= 0) return distribution;
+
+    // Always spawn 1 head (if count >= 1)
+    distribution.head = 1;
+    let remaining = count - 1;
+
+    if (remaining <= 0) return distribution;
+
+    // Explosive deaths get entrails
+    if (isExplosive && remaining >= 2) {
+      distribution.entrails = Math.min(2, Math.floor(remaining * 0.3));
+      remaining -= distribution.entrails;
+    }
+
+    // Spawn a tail sometimes
+    if (remaining > 0 && Math.random() < 0.4) {
+      distribution.tail = 1;
+      remaining -= 1;
+    }
+
+    // Split remaining between limbs (60%) and torso (40%)
+    if (remaining > 0) {
+      distribution.limb = Math.ceil(remaining * 0.6);
+      distribution.torso = remaining - distribution.limb;
+    }
+
+    return distribution;
   }
 
   /**
@@ -590,23 +757,29 @@ export class ParticleSystem {
   }
 
   private updateGibs(dt: number, gravity: number): void {
-    let needsUpdate = false;
+    // Track which gib types need GPU buffer updates
+    const needsUpdateByType = new Set<GibType>();
 
     for (let i = this.gibs.length - 1; i >= 0; i--) {
       const g = this.gibs[i];
       g.lifetime += dt;
 
+      const instances = this.gibInstancesByType.get(g.gibType);
+      const freeIndices = this.freeGibIndicesByType.get(g.gibType);
+
+      if (!instances || !freeIndices) continue;
+
       if (g.lifetime >= g.maxLifetime) {
         // Hide this gib
         this.dummyMatrix.makeScale(0, 0, 0);
-        this.gibInstances.setMatrixAt(g.index, this.dummyMatrix);
+        instances.setMatrixAt(g.index, this.dummyMatrix);
 
         // Return index to pool
-        this.freeGibIndices.push(g.index);
+        freeIndices.push(g.index);
         // Swap-and-pop: O(1) removal (safe for backward iteration)
         this.gibs[i] = this.gibs[this.gibs.length - 1];
         this.gibs.pop();
-        needsUpdate = true;
+        needsUpdateByType.add(g.gibType);
         continue;
       }
 
@@ -614,10 +787,12 @@ export class ParticleSystem {
       g.velocity.y += gravity * dt;
       g.position.addScaledVector(g.velocity, dt);
 
-      // Ground collision - bounce
+      // Ground collision - bounce (different bounce for different gib types)
       if (g.position.y < 0.1) {
         g.position.y = 0.1;
-        g.velocity.y *= -0.3; // Bounce with energy loss
+        // Entrails are squishy, less bounce; head is heavier, more thud
+        const bounciness = g.gibType === 'entrails' ? -0.15 : (g.gibType === 'head' ? -0.25 : -0.3);
+        g.velocity.y *= bounciness;
         g.velocity.x *= 0.7;
         g.velocity.z *= 0.7;
         g.angularVelocity.multiplyScalar(0.5);
@@ -639,13 +814,17 @@ export class ParticleSystem {
       this.dummyScale.set(scale, scale, scale);
       this.dummyMatrix.scale(this.dummyScale);
       this.dummyMatrix.setPosition(g.position);
-      this.gibInstances.setMatrixAt(g.index, this.dummyMatrix);
+      instances.setMatrixAt(g.index, this.dummyMatrix);
 
-      needsUpdate = true;
+      needsUpdateByType.add(g.gibType);
     }
 
-    if (needsUpdate) {
-      this.gibInstances.instanceMatrix.needsUpdate = true;
+    // Update GPU buffers only for gib types that changed
+    for (const gibType of needsUpdateByType) {
+      const instances = this.gibInstancesByType.get(gibType);
+      if (instances) {
+        instances.instanceMatrix.needsUpdate = true;
+      }
     }
   }
 

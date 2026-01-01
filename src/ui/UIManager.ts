@@ -574,6 +574,13 @@ export class UIManager {
     this.effects.showMessage(`Wave ${wave}`, 2000);
   }
 
+  /**
+   * Set callback for slow-mo effect triggered by multi-kills
+   */
+  setSlowMoCallback(callback: (scale: number, duration: number) => void): void {
+    this.effects.onSlowMo = callback;
+  }
+
   // ============================================================================
   // Last Stand UI
   // ============================================================================

@@ -47,6 +47,12 @@ export class Game {
   private hitstopTimer = 0;
   private readonly hitstopDuration: number;
 
+  // Slow-mo system for multi-kills
+  private timeScale = 1.0;
+  private slowMoTimer = 0;
+  private slowMoTargetScale = 1.0;
+  private readonly SLOWMO_LERP_SPEED = 8.0; // How fast to transition to/from slow-mo
+
   // Game time for effects
   private gameTime = 0;
 
@@ -153,6 +159,11 @@ export class Game {
       }, 500);
     };
 
+    // Set up slow-mo callback for multi-kills
+    (this.ui as UIManager).setSlowMoCallback((scale, duration) => {
+      this.triggerSlowMo(scale, duration);
+    });
+
     // Build map visuals
     this.renderer.buildMap(this.mapData);
 
@@ -218,21 +229,57 @@ export class Game {
   private gameLoop(currentTime: number): void {
     if (!this.isRunning) return;
 
-    const deltaTime = currentTime - this.lastTime;
+    const rawDeltaTime = currentTime - this.lastTime;
     this.lastTime = currentTime;
+
+    // Update slow-mo system
+    this.updateSlowMo(rawDeltaTime / 1000); // Convert to seconds
+
+    // Apply time scaling to delta time
+    const deltaTime = rawDeltaTime * this.timeScale;
     this.accumulator += deltaTime;
 
-    // Fixed timestep for game logic
-    while (this.accumulator >= this.tickInterval) {
+    // Fixed timestep for game logic (scaled by timeScale)
+    const scaledTickInterval = this.tickInterval * this.timeScale;
+    while (this.accumulator >= scaledTickInterval && scaledTickInterval > 0) {
       this.fixedUpdate();
-      this.accumulator -= this.tickInterval;
+      this.accumulator -= scaledTickInterval;
     }
 
     // Interpolation factor for rendering
-    const alpha = this.accumulator / this.tickInterval;
-    this.render(alpha);
+    const alpha = scaledTickInterval > 0 ? this.accumulator / scaledTickInterval : 0;
+    this.render(alpha, rawDeltaTime);
 
     requestAnimationFrame(this.gameLoop.bind(this));
+  }
+
+  /**
+   * Trigger slow-motion effect
+   * @param scale Time scale (0.4 = 40% speed, very slow; 0.8 = 80% speed, subtle)
+   * @param duration Duration in milliseconds
+   */
+  triggerSlowMo(scale: number, duration: number): void {
+    this.slowMoTargetScale = Math.max(0.2, Math.min(1.0, scale));
+    this.slowMoTimer = duration;
+  }
+
+  /**
+   * Update slow-mo system - smoothly lerp time scale
+   */
+  private updateSlowMo(dtSeconds: number): void {
+    if (this.slowMoTimer > 0) {
+      this.slowMoTimer -= dtSeconds * 1000; // Timer in ms
+      // Lerp towards target scale
+      this.timeScale += (this.slowMoTargetScale - this.timeScale) * this.SLOWMO_LERP_SPEED * dtSeconds;
+    } else {
+      // Lerp back to normal speed
+      this.timeScale += (1.0 - this.timeScale) * this.SLOWMO_LERP_SPEED * dtSeconds;
+    }
+
+    // Clamp to prevent floating point drift
+    if (Math.abs(this.timeScale - 1.0) < 0.01 && this.slowMoTimer <= 0) {
+      this.timeScale = 1.0;
+    }
   }
 
   private fixedUpdate(): void {
@@ -301,21 +348,25 @@ export class Game {
     });
   }
 
-  private render(alpha: number): void {
-    // Track game time for effects
-    this.gameTime += 16; // Approx 60fps
+  private render(alpha: number, rawDeltaTime: number = 16): void {
+    // Track game time for effects (scaled by time scale for consistent look)
+    this.gameTime += rawDeltaTime * this.timeScale;
+
+    // Delta time in seconds for updates
+    const dtSeconds = rawDeltaTime / 1000;
+    const scaledDt = dtSeconds * this.timeScale;
 
     // Update entity visuals with interpolation
     this.entities.updateVisuals(alpha);
 
-    // Update particles
-    this.renderer.updateParticles(0.016); // 60fps dt
+    // Update particles - use scaled time for slow-mo effect on blood/gibs
+    this.renderer.updateParticles(scaledDt);
 
     // Update torch flickering
     this.renderer.updateTorches(this.gameTime);
 
     // Update TARDIS effects
-    this.renderer.updateTardis(0.016);
+    this.renderer.updateTardis(scaledDt);
 
     // Update power cell animations
     this.renderer.updatePowerCells();
